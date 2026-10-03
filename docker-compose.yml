@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: opap
+      POSTGRES_USER: opap
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opap-local-only}
+    volumes:
+      - opap_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opap -d opap"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://opap:${POSTGRES_PASSWORD:-opap-local-only}@db:5432/opap
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  opap_postgres:
