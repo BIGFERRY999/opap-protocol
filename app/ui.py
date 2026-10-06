@@ -645,6 +645,18 @@ def get_scanner_html() -> str:
             <button class="btn btn-sm btn-primary" onclick="submitCustodyEvent()">Record Custody Event</button>
           </div>
         </div>
+
+        <!-- Bulk EPCIS 2.0 Document Capture -->
+        <div style="margin-top:1.5rem; background:var(--surface-elevated); padding:1rem; border-radius:10px; border:1px solid var(--border);">
+          <h3 style="font-size:0.95rem; font-weight:700; margin-bottom:0.35rem;">📥 Bulk EPCIS 2.0 Event Document Ingest (Capture Pipeline)</h3>
+          <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.75rem;">Ingest standard GS1 EPCIS 2.0 JSON-LD / CBV 2.0 event documents containing multiple ObjectEvents and multi-item SGTIN epcLists.</p>
+          <textarea id="epcis-bulk-json" class="input-field" rows="4" style="font-family:var(--font-mono); font-size:0.75rem;" placeholder='Paste EPCISDocument JSON-LD or {"epcisBody": {"eventList": [...]}}'></textarea>
+          <div style="margin-top:0.5rem; display:flex; gap:0.5rem; justify-content:flex-end;">
+            <button class="btn btn-sm btn-secondary" onclick="loadSampleEpcisDoc()">Load Sample EPCIS Document</button>
+            <button class="btn btn-sm btn-primary" onclick="submitEpcisDocument()">Ingest EPCIS Document</button>
+          </div>
+          <div id="epcis-bulk-result" style="margin-top:0.5rem; font-size:0.8rem;"></div>
+        </div>
       </div>
     </section>
 
@@ -1167,6 +1179,64 @@ def get_scanner_html() -> str:
         fetchCustody();
       } catch (err) {
         alert('Error: ' + err.message);
+      }
+    }
+
+    function loadSampleEpcisDoc() {
+      const sample = {
+        "@context": ["https://ref.gs1.org/standards/epcis/2.0.0/epcis-context.jsonld", {"opap": "https://opap.org/spec/v0.1/epcis#"}],
+        "type": "EPCISDocument",
+        "schemaVersion": "2.0",
+        "creationDate": new Date().toISOString(),
+        "epcisBody": {
+          "eventList": [
+            {
+              "type": "ObjectEvent",
+              "action": "OBSERVE",
+              "bizStep": "urn:epcglobal:cbv:bizstep:receiving",
+              "disposition": "urn:epcglobal:cbv:disp:active",
+              "readPoint": {"id": "urn:epc:id:sgln:8712345000018"},
+              "bizLocation": {"name": "Amsterdam Distribution Hub North"},
+              "custodian": {"id": "LOG-POSTNL-01", "name": "PostNL Logistics B.V."},
+              "epcList": [
+                "urn:epc:id:sgtin:00012345678905.SER-001"
+              ],
+              "userExtensions": {
+                "opap:notes": "Batch acceptance at regional transit gateway."
+              }
+            }
+          ]
+        }
+      };
+      document.getElementById('epcis-bulk-json').value = JSON.stringify(sample, null, 2);
+    }
+
+    async function submitEpcisDocument() {
+      const raw = document.getElementById('epcis-bulk-json').value.trim();
+      const resBox = document.getElementById('epcis-bulk-result');
+      if (!raw) {
+        alert('Please paste or load an EPCIS 2.0 Document JSON-LD first.');
+        return;
+      }
+      resBox.innerHTML = '<span style="color:var(--text-muted);">Ingesting EPCIS events...</span>';
+      try {
+        const parsed = JSON.parse(raw);
+        const res = await fetch('/v1/epcis/capture', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': 'dev-change-me'
+          },
+          body: JSON.stringify(parsed)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Capture failed');
+        resBox.innerHTML = `<span style="color:var(--success); font-weight:700;">✅ Ingested ${data.total_events_processed} event(s) across ${data.affected_products_count} product(s)!</span>`;
+        if (document.getElementById('custody-product-input').value) {
+          fetchCustody();
+        }
+      } catch (err) {
+        resBox.innerHTML = `<span style="color:var(--danger);">❌ Ingest Error: ${err.message}</span>`;
       }
     }
 

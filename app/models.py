@@ -111,6 +111,8 @@ class CustodyDisposition(str, enum.Enum):
     IN_PROGRESS = "IN_PROGRESS"
     RECALLED = "RECALLED"
     DESTROYED = "DESTROYED"
+    QUARANTINED = "QUARANTINED"
+    SOLD = "SOLD"
 
 
 class CustodyEvent(Base):

@@ -247,3 +247,7 @@ class OPAPClient:
         if batch_id:
             path += f"?batch_id={urllib.parse.quote(batch_id)}"
         return self._request("GET", path, headers={"Accept": "text/html"}, raw_response=True)
+
+    def capture_epcis_events(self, epcis_document: dict[str, Any]) -> dict[str, Any]:
+        """Bulk captures and ingests a standard GS1 EPCIS 2.0 JSON-LD event document."""
+        return self._request("POST", "/v1/epcis/capture", data=epcis_document)

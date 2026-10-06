@@ -50,7 +50,7 @@ from .signer import SignerConfigError, SignerError, get_signer
 from .ui import get_scanner_html
 from .gs1 import build_digital_link_uri, parse_digital_link_uri, pad_gtin14, validate_gtin
 from .ai import ForensicEngine
-from .epcis import add_custody_event, export_epcis2_document
+from .epcis import add_custody_event, export_epcis2_document, ingest_epcis2_document
 from .packaging import generate_single_label_svg, generate_batch_label_sheet_html
 
 
@@ -794,6 +794,19 @@ def get_custody_history(product_id: str, format: str = "json", db: Session = Dep
             for ev in events
         ],
     }
+
+
+@app.post("/v1/epcis/capture", dependencies=[Depends(require_api_key)])
+def capture_epcis_events(body: dict[str, Any], db: Session = Depends(get_db)):
+    """Bulk captures and ingests a standard GS1 EPCIS 2.0 JSON-LD event document."""
+    try:
+        result = ingest_epcis2_document(db=db, epcis_doc=body)
+        db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(500, detail=f"EPCIS 2.0 capture ingestion failed: {e}")
 
 
 @app.get("/v1/products/{product_id}/forensics", response_model=ForensicThreatReport)
