@@ -507,6 +507,8 @@ def get_scanner_html() -> str:
       <button class="tab-btn" onclick="switchTab('dpp')">🇪🇺 Product Passport</button>
       <button class="tab-btn" onclick="switchTab('custody')">📦 EPCIS Custody</button>
       <button class="tab-btn" onclick="switchTab('forensics')">🤖 AI Forensics</button>
+      <button class="tab-btn" onclick="switchTab('offline')">🎫 Offline V-Pass</button>
+      <button class="tab-btn" onclick="switchTab('transparency')">🔑 Key Transparency</button>
       <button class="tab-btn" onclick="switchTab('batch')">⚡ Batch Audit</button>
       <button class="tab-btn" onclick="switchTab('demo')">🧪 Sandbox</button>
     </nav>
@@ -764,6 +766,67 @@ def get_scanner_html() -> str:
         </div>
       </div>
     </section>
+
+    <!-- 7. OFFLINE V-PASS TAB -->
+    <section id="tab-offline" class="hidden">
+      <div class="card">
+        <div class="card-header">
+          <h2>🎫 Offline V-Pass Cryptographic Verification Capsule</h2>
+          <p>Verify physical products 100% offline with zero internet or database connection using cached JWKS public keys.</p>
+        </div>
+
+        <div class="step-box">
+          <div class="step-title">
+            <span class="step-num">1</span> Generate Offline Verification Token (V-Pass)
+          </div>
+          <div class="search-box">
+            <input type="text" id="offline-token-pid-input" class="input-field" placeholder="Enter Product ID (e.g. OPAP-MFR-TEST-...)">
+            <button class="btn btn-primary" onclick="generateOfflineVPass()">Generate V-Pass</button>
+          </div>
+          <div id="offline-token-display" class="log-box hidden"></div>
+        </div>
+
+        <div class="step-box">
+          <div class="step-title">
+            <span class="step-num">2</span> Air-Gapped Offline Verification Simulator
+          </div>
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.75rem;">Paste an OPAP.V1 compact token to execute cryptographic signature verification and expiry checks.</p>
+          <textarea id="offline-verify-input" class="input-field" style="height:80px; font-family:var(--font-mono); font-size:0.8rem;" placeholder="Paste OPAP.V1.<payload>.<sig> token here..."></textarea>
+          <div style="margin-top:0.75rem;">
+            <button class="btn btn-primary" onclick="runOfflineVerify()">Run Cryptographic Verification</button>
+          </div>
+          <div id="offline-verify-result" class="log-box hidden"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8. KEY TRANSPARENCY TAB -->
+    <section id="tab-transparency" class="hidden">
+      <div class="card">
+        <div class="card-header">
+          <h2>🔑 Key Transparency, JWKS &amp; Merkle Audit Ledger</h2>
+          <p>Decentralized cryptographic public key directory (RFC 7517 / 8037), Certificate Revocation List (CRL), and SHA-256 Merkle root hash.</p>
+        </div>
+
+        <div class="grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:1rem; margin-bottom:1rem;">
+          <div class="step-box">
+            <div class="step-title">🌳 Merkle Tree Root Hash</div>
+            <button class="btn btn-primary btn-sm" onclick="loadMerkleState()">Fetch Merkle Root</button>
+            <div id="transparency-merkle-log" class="log-box hidden"></div>
+          </div>
+          <div class="step-box">
+            <div class="step-title">🔑 RFC 7517 JWKS Key Set</div>
+            <button class="btn btn-secondary btn-sm" onclick="loadJwksDirectory()">Fetch JWKS Keys</button>
+            <div id="transparency-jwks-log" class="log-box hidden"></div>
+          </div>
+          <div class="step-box">
+            <div class="step-title">🚫 Certificate Revocation List</div>
+            <button class="btn btn-secondary btn-sm" onclick="loadCrlList()">Fetch CRL</button>
+            <div id="transparency-crl-log" class="log-box hidden"></div>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -787,7 +850,7 @@ def get_scanner_html() -> str:
       document.querySelectorAll('main > section').forEach(sec => sec.classList.add('hidden'));
       
       const tabMap = {
-        'single': 1, 'dpp': 2, 'custody': 3, 'forensics': 4, 'batch': 5, 'demo': 6
+        'single': 1, 'dpp': 2, 'custody': 3, 'forensics': 4, 'offline': 5, 'transparency': 6, 'batch': 7, 'demo': 8
       };
       const idx = tabMap[tabId] || 1;
       const targetBtn = document.querySelector(`.tab-btn:nth-child(${idx})`);
@@ -1457,6 +1520,91 @@ def get_scanner_html() -> str:
       log.textContent = 'Querying active cryptographic signer provider...\n';
       try {
         const res = await fetch('/v1/signer');
+        const data = await res.json();
+        log.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        log.textContent = 'Error: ' + err.message;
+      }
+    }
+
+    async function generateOfflineVPass() {
+      const pid = document.getElementById('offline-token-pid-input').value.trim() || lastVerifiedProductId;
+      if (!pid) {
+        alert('Please enter a Product ID');
+        return;
+      }
+      const display = document.getElementById('offline-token-display');
+      display.classList.remove('hidden');
+      display.textContent = 'Generating compact signed V-Pass token...\n';
+      try {
+        const res = await fetch(`/v1/products/${encodeURIComponent(pid)}/offline-token`);
+        const data = await res.json();
+        if (data.offline_token) {
+          display.textContent = `🎫 Compact Signed V-Pass (URL-Safe Token):\n${data.offline_token}\n\nAlgorithm: Ed25519 (RFC 8037)\nKey ID: ${data.key_id}\nManufacturer: ${data.manufacturer_id}`;
+          document.getElementById('offline-verify-input').value = data.offline_token;
+        } else {
+          display.textContent = 'Error: ' + JSON.stringify(data);
+        }
+      } catch (err) {
+        display.textContent = 'Error: ' + err.message;
+      }
+    }
+
+    async function runOfflineVerify() {
+      const token = document.getElementById('offline-verify-input').value.trim();
+      if (!token) {
+        alert('Please paste an OPAP.V1 offline verification token');
+        return;
+      }
+      const resBox = document.getElementById('offline-verify-result');
+      resBox.classList.remove('hidden');
+      resBox.textContent = 'Executing cryptographic verification against public key ledger...\n';
+      try {
+        const res = await fetch('/v1/verify/offline', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: token })
+        });
+        const data = await res.json();
+        const validIcon = data.valid ? '✅ CRYPTOGRAPHICALLY VALID & SEALED' : '❌ VERIFICATION FAILED';
+        resBox.textContent = `${validIcon}\nReason: ${data.reason}\nProduct ID: ${data.product_id}\nManufacturer: ${data.manufacturer_id}\nDetails:\n` + JSON.stringify(data, null, 2);
+      } catch (err) {
+        resBox.textContent = 'Error: ' + err.message;
+      }
+    }
+
+    async function loadMerkleState() {
+      const log = document.getElementById('transparency-merkle-log');
+      log.classList.remove('hidden');
+      log.textContent = 'Computing RFC 6962 SHA-256 Merkle root...\n';
+      try {
+        const res = await fetch('/v1/transparency/merkle-root');
+        const data = await res.json();
+        log.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        log.textContent = 'Error: ' + err.message;
+      }
+    }
+
+    async function loadJwksDirectory() {
+      const log = document.getElementById('transparency-jwks-log');
+      log.classList.remove('hidden');
+      log.textContent = 'Fetching RFC 7517 / RFC 8037 JWKS keys...\n';
+      try {
+        const res = await fetch('/.well-known/jwks.json');
+        const data = await res.json();
+        log.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        log.textContent = 'Error: ' + err.message;
+      }
+    }
+
+    async function loadCrlList() {
+      const log = document.getElementById('transparency-crl-log');
+      log.classList.remove('hidden');
+      log.textContent = 'Fetching Certificate Revocation List...\n';
+      try {
+        const res = await fetch('/v1/transparency/crl');
         const data = await res.json();
         log.textContent = JSON.stringify(data, null, 2);
       } catch (err) {

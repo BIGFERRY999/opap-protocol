@@ -39,8 +39,41 @@ def b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
+def b64url_decode(data: str) -> bytes:
+    """Decodes base64url string with flexible padding."""
+    rem = len(data) % 4
+    if rem > 0:
+        data += "=" * (4 - rem)
+    return base64.urlsafe_b64decode(data.encode("ascii"))
+
+
 def utc_iso(value: datetime | None = None) -> str:
     value = value or datetime.now(timezone.utc)
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def compute_merkle_root(leaf_hashes: list[str]) -> str:
+    """Computes standard RFC 6962 SHA-256 Merkle root from hex leaf hashes."""
+    if not leaf_hashes:
+        return hashlib.sha256(b"").hexdigest()
+    if len(leaf_hashes) == 1:
+        return leaf_hashes[0]
+
+    current_level = [bytes.fromhex(h) for h in leaf_hashes]
+    while len(current_level) > 1:
+        next_level = []
+        for i in range(0, len(current_level), 2):
+            left = current_level[i]
+            if i + 1 < len(current_level):
+                right = current_level[i + 1]
+            else:
+                right = left  # duplicate odd leaf
+            # RFC 6962 interior node prefix 0x01
+            combined = hashlib.sha256(b"\x01" + left + right).digest()
+            next_level.append(combined)
+        current_level = next_level
+
+    return current_level[0].hex()
+

@@ -112,6 +112,27 @@ def main():
     # 9. AI Surveillance Threat Radar
     subparsers.add_parser("threats", help="Inspect global AI counterfeit threat surveillance feed")
 
+    # 10. Key Transparency & JWKS
+    trans_p = subparsers.add_parser("transparency", help="Query Key Transparency, CRL, and Merkle proofs")
+    trans_sub = trans_p.add_subparsers(dest="trans_cmd", required=True)
+    trans_sub.add_parser("jwks", help="Export RFC 7517 JSON Web Key Set")
+    trans_sub.add_parser("crl", help="Export Certificate Revocation List")
+    trans_sub.add_parser("merkle", help="Inspect RFC 6962 SHA-256 Merkle root hash")
+
+    # 11. Offline Verification (V-Pass)
+    offline_p = subparsers.add_parser("offline", help="Manage offline verification tokens (V-Pass)")
+    off_sub = offline_p.add_subparsers(dest="off_cmd", required=True)
+    off_get = off_sub.add_parser("get-token", help="Generate offline verification token")
+    off_get.add_argument("product_id", help="Product ID")
+    off_verify = off_sub.add_parser("verify", help="Validate an offline token locally/server-side")
+    off_verify.add_argument("token", help="Offline token string (OPAP.V1...)")
+
+    # 12. Sector DPP Generator
+    sec_p = subparsers.add_parser("sector-dpp", help="Generate EU CIRPASS 2.0 multi-sector DPP")
+    sec_p.add_argument("product_id", help="Product ID")
+    sec_p.add_argument("--sector", choices=["battery", "textile", "electronics", "pharma"], default="battery", help="Industry sector")
+    sec_p.add_argument("--format", choices=["json", "html"], default="json", help="Output format")
+
     args = parser.parse_args()
     client = OPAPClient(base_url=args.url, api_key=args.key)
 
@@ -124,6 +145,39 @@ def main():
             res = client.signer_status()
             print("🔐 Active Cryptographic Signer:")
             print(format_json(res))
+
+        elif args.command == "transparency":
+            if args.trans_cmd == "jwks":
+                res = client.get_jwks()
+                print("🔑 RFC 7517 / 8037 JSON Web Key Set (JWKS):")
+                print(format_json(res))
+            elif args.trans_cmd == "crl":
+                res = client.get_crl()
+                print("🚫 Key Certificate Revocation List (CRL):")
+                print(format_json(res))
+            elif args.trans_cmd == "merkle":
+                res = client.get_merkle_root()
+                print("🌳 RFC 6962 Merkle Key Transparency Root:")
+                print(format_json(res))
+
+        elif args.command == "offline":
+            if args.off_cmd == "get-token":
+                res = client.get_offline_token(args.product_id)
+                print(f"🎫 Offline V-Pass Token for {args.product_id}:")
+                print(res["offline_token"])
+            elif args.off_cmd == "verify":
+                res = client.verify_offline(args.token)
+                is_valid = res.get("valid", False)
+                status_emoji = "✅" if is_valid else "❌"
+                print(f"{status_emoji} Offline Verification Result: {res.get('reason')}")
+                print(format_json(res))
+
+        elif args.command == "sector-dpp":
+            res = client.get_sector_dpp(args.product_id, sector=args.sector, format=args.format)
+            if args.format == "html":
+                print(res)
+            else:
+                print(format_json(res))
 
         elif args.command == "mfr":
             if args.mfr_cmd == "register":

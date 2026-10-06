@@ -158,6 +158,82 @@ class ForensicEngine:
             "ai_advisory": ai_advisory,
         }
 
+    @classmethod
+    def build_forensics_graph(
+        cls,
+        product: dict[str, Any],
+        verification_events: list[dict[str, Any]],
+        custody_events: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Builds an interactive supply-chain & scan topology graph for network forensics."""
+        nodes = []
+        edges = []
+        custody_list = custody_events or []
+
+        # Root manufacturer node
+        pid = product.get("product_id", "PROD")
+        mfr_name = product.get("manufacturer", "Manufacturer")
+        nodes.append({
+            "id": f"node:mfr:{pid}",
+            "label": mfr_name,
+            "type": "ORIGIN_MANUFACTURER",
+            "status": "SECURE",
+            "timestamp": product.get("issued_at"),
+        })
+
+        last_node_id = f"node:mfr:{pid}"
+
+        # Custody chain nodes
+        for idx, ev in enumerate(custody_list):
+            node_id = f"node:custody:{ev.get('event_id', idx)}"
+            nodes.append({
+                "id": node_id,
+                "label": ev.get("location_name") or ev.get("custodian_name") or f"Hub {idx+1}",
+                "type": "CUSTODY_HOP",
+                "business_step": ev.get("business_step"),
+                "disposition": ev.get("disposition"),
+                "geo_lat": ev.get("geo_lat"),
+                "geo_lon": ev.get("geo_lon"),
+                "timestamp": ev.get("occurred_at"),
+            })
+            edges.append({
+                "source": last_node_id,
+                "target": node_id,
+                "type": "SUPPLY_CHAIN_TRANSIT",
+                "label": ev.get("business_step", "SHIPPING"),
+            })
+            last_node_id = node_id
+
+        # Verification event nodes
+        for idx, ve in enumerate(verification_events):
+            v_node_id = f"node:scan:{ve.get('event_id', idx)}"
+            is_anomaly = bool(ve.get("risk_flag"))
+            nodes.append({
+                "id": v_node_id,
+                "label": f"Scan ({ve.get('lane', 'CONSUMER')}) - {ve.get('city') or 'Point of Sale'}",
+                "type": "VERIFICATION_SCAN",
+                "result": ve.get("result"),
+                "lane": ve.get("lane"),
+                "anomaly": is_anomaly,
+                "geo_lat": ve.get("geo_lat"),
+                "geo_lon": ve.get("geo_lon"),
+                "timestamp": ve.get("occurred_at"),
+            })
+            edges.append({
+                "source": last_node_id,
+                "target": v_node_id,
+                "type": "SCAN_EVENT",
+                "risk_flag": is_anomaly,
+            })
+
+        return {
+            "product_id": pid,
+            "total_nodes": len(nodes),
+            "total_edges": len(edges),
+            "nodes": nodes,
+            "edges": edges,
+        }
+
     @staticmethod
     def generate_advisory(
         product: dict[str, Any],
@@ -187,3 +263,4 @@ class ForensicEngine:
                 f"is verified genuine under OPAP Ed25519 digital signature. "
                 f"Supply chain seals and one-time verification lanes are intact."
             )
+

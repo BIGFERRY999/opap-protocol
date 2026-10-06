@@ -5,11 +5,11 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![GS1 Digital Link](https://img.shields.io/badge/GS1-Digital_Link_2027-F26322.svg?logo=barcode)](https://www.gs1.org/standards/Digital-Link)
 [![EU ESPR DPP](https://img.shields.io/badge/EU_DPP-Regulation_2024%2F1781-003399.svg?logo=european-union)](https://commission.europa.eu)
-[![Tests](https://img.shields.io/badge/Tests-15_Passing-22c55e.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-32_Passing-22c55e.svg)](tests/)
 
 **Open Product Authentication Protocol (OPAP)** is a commercial-grade, open-standard platform for cryptographic brand protection, anti-counterfeiting, supply chain track-and-trace, and regulatory compliance.
 
-Benchmarked against global mandates—including **GS1 Digital Link (Sunrise 2027)**, **EU ESPR Digital Product Passport (EU 2024/1781)**, **GS1 EPCIS 2.0**, and **FDA DSCSA**—OPAP bridges physical serialization with mathematical authenticity.
+Benchmarked against global mandates—including **GS1 Digital Link (Sunrise 2027)**, **EU ESPR Digital Product Passport (EU 2024/1781)**, **EU Battery Regulation (EU 2023/1542)**, **GS1 EPCIS 2.0**, and **FDA DSCSA**—OPAP bridges physical serialization with mathematical authenticity.
 
 ---
 
@@ -18,11 +18,14 @@ Benchmarked against global mandates—including **GS1 Digital Link (Sunrise 2027
 | Enterprise Pillar | Standard / Specification | Key Capabilities |
 |---|---|---|
 | **GS1 Digital Link Resolver** | GS1 URI Syntax Standard v1.7.0 (Sunrise 2027) | Native `/01/{gtin}/21/{serial}` resolver, GTIN-14 Modulo 10 check digit validation, Application Identifiers (`01`, `21`, `10`, `17`), dynamic content negotiation (HTML, JSON-LD, SVG). |
-| **EU Digital Product Passport** | EU Ecodesign Regulation (EU 2024/1781) | Material compositions, carbon footprint (kg CO₂e), recycled content %, repairability index, circularity lifecycle tracking, and compliance certifications. |
-| **EPCIS 2.0 Supply Chain Custody** | GS1 EPCIS 2.0 / CBV 2.0 Standard | Multi-hop custody logging (`COMMISSIONING`, `SHIPPING`, `CUSTOMS_CLEARANCE`, `RECEIVING`, `HOLDING`, `RETAIL_SELLING`), GLN locations, and standard JSON-LD document export. |
-| **AI Counterfeit Forensics** | Autonomous Behavioral Intelligence | Real-time Haversine impossible travel geo-velocity ($v > 900\text{ km/h}$) anomaly detection, replay attack clustering, risk scoring, and natural language consumer advisories. |
+| **Offline V-Pass Verification** | Air-Gapped Attestation Tokens | 100% offline cryptographic verification for customs & field inspectors with compact URL-safe signed tokens (`OPAP.V1...`) and tamper-evident inspection proof receipts. |
+| **Key Transparency & Merkle Ledger** | RFC 7517 JWKS & RFC 6962 Merkle Log | Open public key directory (`/.well-known/jwks.json`), Certificate Revocation Lists (CRL), and SHA-256 Merkle root hash for provable non-repudiation. |
+| **Multi-Sector EU DPP 2.0** | CIRPASS / EU 2024/1781 / EU 2023/1542 | Tailored schemas for **Batteries** (SoH, chemistry, raw minerals), **Textiles** (fiber, wash cycles, PFAS-free), **Electronics** (French repairability index), and **Pharma** (cold-chain, serialization). |
+| **EPCIS 2.0 Supply Chain Custody** | GS1 EPCIS 2.0 / CBV 2.0 Standard | Multi-hop custody logging (`COMMISSIONING`, `SHIPPING`, `CUSTOMS_CLEARANCE`, `RECEIVING`, `HOLDING`, `RETAIL_SELLING`), GLN locations, bulk JSON-LD document ingest (`/v1/epcis/capture`), and export. |
+| **AI Forensics & Graph Network** | Autonomous Behavioral Intelligence | Real-time Haversine impossible travel geo-velocity ($v > 900\text{ km/h}$) anomaly detection, replay attack clustering, interactive topology graph export, and natural language safety advisories. |
 | **Industrial Packaging Engine** | ISO/IEC 15424 Vector Printing | Print-ready industrial SVG packaging labels with cut guides and QR DataMatrix, plus multi-up batch sticker sheets for automated factory roll & sheet applicators. |
-| **Cryptographic Foundation** | Ed25519 & Dual-Lane State Machine | Canonical UTF-8 JSON signing, SHA-256 digest, independent one-time `MERCHANT` and `CONSUMER` verification lanes, and pluggable HSM/KMS hardware signing providers. |
+| **Cryptographic Foundation** | Ed25519 & Pluggable KMS/HSM | Canonical UTF-8 JSON signing, SHA-256 digest, dual-lane state machine (`MERCHANT` / `CONSUMER`), and pluggable signing providers (LocalEnv, FileKey, AWS KMS, GCP KMS, PKCS#11 HSM). |
+
 
 ---
 

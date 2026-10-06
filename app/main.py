@@ -52,6 +52,15 @@ from .gs1 import build_digital_link_uri, parse_digital_link_uri, pad_gtin14, val
 from .ai import ForensicEngine
 from .epcis import add_custody_event, export_epcis2_document, ingest_epcis2_document
 from .packaging import generate_single_label_svg, generate_batch_label_sheet_html
+from .offline import create_offline_token, parse_offline_token, verify_offline_token_locally, create_offline_proof_receipt
+from .transparency import export_jwks_keys, export_key_revocation_list, compute_transparency_merkle_state
+from .dpp import (
+    generate_battery_passport,
+    generate_textile_passport,
+    generate_electronics_passport,
+    generate_pharma_passport,
+    render_dpp_interactive_html,
+)
 
 
 @asynccontextmanager
@@ -965,4 +974,262 @@ def get_manufacturer_label_sheet(
         base_url=get_settings().public_base_url,
     )
     return HTMLResponse(content=html_sheet)
+
+
+# ---------------------------------------------------------------------------
+# Key Transparency, JWKS (RFC 7517) & Merkle Audit Log
+# ---------------------------------------------------------------------------
+
+@app.get("/.well-known/jwks.json")
+@app.get("/v1/transparency/jwks")
+def get_jwks(manufacturer_id: str | None = None, db: Session = Depends(get_db)):
+    """RFC 7517 / RFC 8037 compliant JSON Web Key Set (JWKS) public key directory."""
+    return export_jwks_keys(db, manufacturer_id=manufacturer_id)
+
+
+@app.get("/.well-known/opap-configuration")
+def get_opap_configuration():
+    """OPAP Open Discovery Configuration."""
+    base_url = get_settings().public_base_url
+    return {
+        "issuer": base_url,
+        "protocol_version": "0.1.0-enterprise",
+        "jwks_uri": f"{base_url}/.well-known/jwks.json",
+        "merkle_transparency_uri": f"{base_url}/v1/transparency/merkle-root",
+        "crl_uri": f"{base_url}/v1/transparency/crl",
+        "supported_algorithms": ["Ed25519", "EdDSA"],
+        "supported_dpp_sectors": ["BATTERY_STORAGE", "TEXTILES_APPAREL", "ELECTRONICS_ICT", "PHARMA_HEALTHCARE"],
+        "epcis_version": "2.0",
+        "gs1_digital_link_compliant": True,
+    }
+
+
+@app.get("/v1/transparency/crl")
+def get_certificate_revocation_list(db: Session = Depends(get_db)):
+    """Certificate Revocation List (CRL) for revoked manufacturer cryptographic keys."""
+    return export_key_revocation_list(db)
+
+
+@app.get("/v1/transparency/merkle-root")
+def get_merkle_transparency_state(db: Session = Depends(get_db)):
+    """RFC 6962 SHA-256 Merkle root hash and key transparency audit state."""
+    return compute_transparency_merkle_state(db)
+
+
+# ---------------------------------------------------------------------------
+# Offline Verification (V-Pass & Proof of Offline Verification)
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/products/{product_id}/offline-token")
+def get_product_offline_token(product_id: str, db: Session = Depends(get_db)):
+    """Generates a compact, URL-safe self-contained Offline Verification Token (V-Pass)."""
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(404, "Product not found")
+
+    token = create_offline_token(
+        product_id=product.product_id,
+        manufacturer_id=product.manufacturer_id,
+        key_id=product.key_id,
+        signature_bytes=product.signature,
+        gtin=product.gtin,
+        batch_id=product.batch_id,
+        serial_number=product.serial_number,
+        expiry_date=utc_iso(product.expiry_date) if product.expiry_date else None,
+        issued_at=utc_iso(product.issued_at),
+    )
+
+    return {
+        "product_id": product.product_id,
+        "offline_token": token,
+        "format": "OPAP.V1",
+        "key_id": product.key_id,
+        "manufacturer_id": product.manufacturer_id,
+    }
+
+
+@app.post("/v1/verify/offline")
+def verify_offline_token_endpoint(body: dict[str, Any], db: Session = Depends(get_db)):
+    """Validates an offline verification token against registered or local public keys."""
+    token = body.get("token")
+    if not token:
+        raise HTTPException(400, "Missing 'token' field in request body")
+
+    try:
+        parsed = parse_offline_token(token)
+    except Exception as e:
+        raise HTTPException(400, detail=str(e))
+
+    mfr_id = parsed["payload"]["mfr"]
+    kid = parsed["payload"]["kid"]
+
+    # Look up public key
+    mfr_key = db.scalar(
+        select(ManufacturerKey).where(
+            ManufacturerKey.manufacturer_id == mfr_id,
+            ManufacturerKey.key_id == kid,
+        )
+    )
+    if not mfr_key:
+        raise HTTPException(404, f"Public key not found for {mfr_id}:{kid}")
+
+    if mfr_key.status == Status.REVOKED:
+        return {
+            "valid": False,
+            "reason": "KEY_REVOKED",
+            "details": "Signing key was revoked by manufacturer",
+            "product_id": parsed["payload"].get("pid"),
+        }
+
+    # Fetch original product if in DB for canonical match
+    prod = db.get(Product, parsed["payload"]["pid"])
+    canonical_payload = prod.canonical_payload if prod else None
+
+    result = verify_offline_token_locally(
+        token_str=token,
+        public_key_bytes=mfr_key.public_key,
+        canonical_payload=canonical_payload,
+    )
+    return result
+
+
+@app.post("/v1/verify/offline/receipt")
+def record_offline_verification_receipt(body: dict[str, Any], db: Session = Depends(get_db)):
+    """Receives an air-gapped inspection proof receipt and records the verification event."""
+    token = body.get("token")
+    inspector_id = body.get("inspector_id", "FIELD-INSPECTOR")
+    result_val = body.get("result", "AUTHENTIC")
+    geo_lat = body.get("geo_lat")
+    geo_lon = body.get("geo_lon")
+    location_name = body.get("location_name")
+    notes = body.get("notes")
+
+    if not token:
+        raise HTTPException(400, "Missing 'token'")
+
+    receipt = create_offline_proof_receipt(
+        token_str=token,
+        inspector_id=inspector_id,
+        verification_result=result_val,
+        geo_lat=geo_lat,
+        geo_lon=geo_lon,
+        location_name=location_name,
+        notes=notes,
+    )
+
+    # Record event in verification_events if product exists
+    pid = receipt["product_id"]
+    ev = VerificationEvent(
+        product_id=pid,
+        lane=Lane.MERCHANT,
+        result=result_val,
+        geo_lat=geo_lat,
+        geo_lon=geo_lon,
+        city=location_name,
+        risk_flag=None if result_val == "AUTHENTIC" else "OFFLINE_VERIFICATION_ANOMALY",
+        metadata_json=receipt,
+    )
+    db.add(ev)
+    db.commit()
+
+    return receipt
+
+
+# ---------------------------------------------------------------------------
+# Multi-Sector EU CIRPASS DPP 2.0 Passport Generators
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/products/{product_id}/dpp/sector/{sector}")
+def get_sector_dpp_passport(
+    product_id: str,
+    sector: str,
+    format: str = "json",
+    db: Session = Depends(get_db),
+):
+    """Generates sector-specific EU Digital Product Passport (Battery, Textile, Electronics, Pharma)."""
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(404, "Product not found")
+
+    sec = sector.upper()
+    if sec in ("BATTERY", "BATTERY_STORAGE"):
+        dpp_data = generate_battery_passport(product)
+    elif sec in ("TEXTILE", "TEXTILES", "TEXTILES_APPAREL"):
+        dpp_data = generate_textile_passport(product)
+    elif sec in ("ELECTRONICS", "ICT", "ELECTRONICS_ICT"):
+        dpp_data = generate_electronics_passport(product)
+    elif sec in ("PHARMA", "HEALTHCARE", "PHARMA_HEALTHCARE"):
+        dpp_data = generate_pharma_passport(product)
+    else:
+        raise HTTPException(400, f"Unsupported sector: {sector}. Choose battery, textile, electronics, or pharma.")
+
+    if format.lower() == "html":
+        return HTMLResponse(content=render_dpp_interactive_html(dpp_data))
+
+    return dpp_data
+
+
+# ---------------------------------------------------------------------------
+# Interactive Forensics Topology Graph
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/products/{product_id}/forensics/graph")
+def get_product_forensics_graph(product_id: str, db: Session = Depends(get_db)):
+    """Exports the supply chain & scan topology graph for network forensics and attack visualization."""
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(404, "Product not found")
+
+    mfr = db.get(Manufacturer, product.manufacturer_id)
+    verif_events = db.scalars(
+        select(VerificationEvent)
+        .where(VerificationEvent.product_id == product_id)
+        .order_by(VerificationEvent.occurred_at.asc())
+    ).all()
+
+    custody_events = db.scalars(
+        select(CustodyEvent)
+        .where(CustodyEvent.product_id == product_id)
+        .order_by(CustodyEvent.occurred_at.asc())
+    ).all()
+
+    v_dicts = [
+        {
+            "event_id": ve.event_id,
+            "lane": ve.lane.value,
+            "result": ve.result,
+            "geo_lat": ve.geo_lat,
+            "geo_lon": ve.geo_lon,
+            "city": ve.city,
+            "risk_flag": ve.risk_flag,
+            "occurred_at": utc_iso(ve.occurred_at),
+        }
+        for ve in verif_events
+    ]
+
+    c_dicts = [
+        {
+            "event_id": ce.event_id,
+            "business_step": ce.business_step.value,
+            "disposition": ce.disposition.value,
+            "location_name": ce.location_name,
+            "custodian_name": ce.custodian_name,
+            "geo_lat": ce.geo_lat,
+            "geo_lon": ce.geo_lon,
+            "occurred_at": utc_iso(ce.occurred_at),
+        }
+        for ce in custody_events
+    ]
+
+    return ForensicEngine.build_forensics_graph(
+        product={
+            "product_id": product.product_id,
+            "product_name": product.product_name,
+            "manufacturer": mfr.name if mfr else "Manufacturer",
+            "issued_at": utc_iso(product.issued_at),
+        },
+        verification_events=v_dicts,
+        custody_events=c_dicts,
+    )
+
 

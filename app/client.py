@@ -251,3 +251,64 @@ class OPAPClient:
     def capture_epcis_events(self, epcis_document: dict[str, Any]) -> dict[str, Any]:
         """Bulk captures and ingests a standard GS1 EPCIS 2.0 JSON-LD event document."""
         return self._request("POST", "/v1/epcis/capture", data=epcis_document)
+
+    # --- Offline Verification & Key Transparency ---
+
+    def get_offline_token(self, product_id: str) -> dict[str, Any]:
+        """Fetches a self-contained compact Offline Verification Token (V-Pass)."""
+        return self._request("GET", f"/v1/products/{product_id}/offline-token")
+
+    def verify_offline(self, token: str) -> dict[str, Any]:
+        """Verifies an offline verification token."""
+        return self._request("POST", "/v1/verify/offline", data={"token": token})
+
+    def submit_offline_receipt(
+        self,
+        token: str,
+        inspector_id: str = "FIELD-AGENT-01",
+        result: str = "AUTHENTIC",
+        geo_lat: float | None = None,
+        geo_lon: float | None = None,
+        location_name: str | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        """Records an air-gapped inspection proof receipt."""
+        payload = {
+            "token": token,
+            "inspector_id": inspector_id,
+            "result": result,
+            "geo_lat": geo_lat,
+            "geo_lon": geo_lon,
+            "location_name": location_name,
+            "notes": notes,
+        }
+        return self._request("POST", "/v1/verify/offline/receipt", data=payload)
+
+    def get_jwks(self, manufacturer_id: str | None = None) -> dict[str, Any]:
+        """Fetches standard RFC 7517 JSON Web Key Set (JWKS)."""
+        path = "/.well-known/jwks.json"
+        if manufacturer_id:
+            path += f"?manufacturer_id={manufacturer_id}"
+        return self._request("GET", path)
+
+    def get_crl(self) -> dict[str, Any]:
+        """Fetches Key Certificate Revocation List (CRL)."""
+        return self._request("GET", "/v1/transparency/crl")
+
+    def get_merkle_root(self) -> dict[str, Any]:
+        """Fetches RFC 6962 Merkle Key Transparency state and root hash."""
+        return self._request("GET", "/v1/transparency/merkle-root")
+
+    def get_sector_dpp(self, product_id: str, sector: str = "battery", format: str = "json") -> Any:
+        """Retrieves sector-specific EU Digital Product Passport (Battery, Textile, Electronics, Pharma)."""
+        return self._request(
+            "GET",
+            f"/v1/products/{product_id}/dpp/sector/{sector}?format={format}",
+            headers={"Accept": "text/html" if format == "html" else "application/json"},
+            raw_response=format == "html",
+        )
+
+    def get_forensics_graph(self, product_id: str) -> dict[str, Any]:
+        """Retrieves interactive supply chain & scan topology graph for network forensics."""
+        return self._request("GET", f"/v1/products/{product_id}/forensics/graph")
+
