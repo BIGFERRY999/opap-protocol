@@ -1151,7 +1151,7 @@ def get_scanner_html() -> str:
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': 'opap-dev-key-change-in-prod'
+            'X-API-Key': 'dev-change-me'
           },
           body: JSON.stringify({
             business_step: step,
@@ -1315,7 +1315,7 @@ def get_scanner_html() -> str:
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': 'opap-dev-key-change-in-prod'
+            'X-API-Key': 'dev-change-me'
           },
           body: JSON.stringify(payload)
         });
@@ -1353,7 +1353,7 @@ def get_scanner_html() -> str:
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': 'opap-dev-key-change-in-prod'
+            'X-API-Key': 'dev-change-me'
           },
           body: JSON.stringify(payload)
         });
