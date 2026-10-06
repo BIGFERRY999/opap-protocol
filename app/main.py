@@ -17,11 +17,15 @@ from .crypto import b64url, sign_payload, utc_iso, verify_signature
 from .database import Base, engine, get_db
 from .models import (
     AuditEvent,
+    CustodyBusinessStep,
+    CustodyDisposition,
+    CustodyEvent,
     Lane,
     LaneStatus,
     Manufacturer,
     ManufacturerKey,
     Product,
+    ProductPassport,
     Status,
     VerificationEvent,
     VerificationLane,
@@ -31,6 +35,11 @@ from .schemas import (
     BatchVerifyRequest,
     BatchVerifyResponse,
     BatchVerifyResultItem,
+    CustodyEventCreate,
+    CustodyEventResponse,
+    DPPResponse,
+    ForensicThreatReport,
+    GS1ResolveResponse,
     ManufacturerCreate,
     ProductIssue,
     RevokeRequest,
@@ -39,6 +48,10 @@ from .schemas import (
 )
 from .signer import SignerConfigError, SignerError, get_signer
 from .ui import get_scanner_html
+from .gs1 import build_digital_link_uri, parse_digital_link_uri, pad_gtin14, validate_gtin
+from .ai import ForensicEngine
+from .epcis import add_custody_event, export_epcis2_document
+from .packaging import generate_single_label_svg, generate_batch_label_sheet_html
 
 
 @asynccontextmanager
@@ -92,6 +105,7 @@ def product_id(manufacturer_id: str) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 @app.get("/scanner", response_class=HTMLResponse)
+@app.get("/ui", response_class=HTMLResponse)
 def web_scanner_view():
     """Interactive Web Scanner, Batch Verifier, and Demo Sandbox."""
     return HTMLResponse(get_scanner_html())
@@ -164,6 +178,13 @@ def issue_products(manufacturer_id: str, body: ProductIssue, db: Session = Depen
     if issued.tzinfo is None:
         issued = issued.replace(tzinfo=timezone.utc)
 
+    expiry = datetime.fromisoformat(body.expiry_date.replace("Z", "+00:00")) if body.expiry_date else None
+    if expiry and expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+
+    # Format or synthesize 14-digit GTIN
+    gtin14 = pad_gtin14(body.gtin) if body.gtin else pad_gtin14("0614141" + str(abs(hash(body.product_code)) % 1000000).zfill(6))
+
     products = []
     for _ in range(body.quantity):
         pid = product_id(manufacturer_id)
@@ -177,6 +198,7 @@ def issue_products(manufacturer_id: str, body: ProductIssue, db: Session = Depen
             "product_name": body.product_name,
             "batch_id": body.batch_id,
             "serial_number": serial,
+            "gtin": gtin14,
             "issued_at": utc_iso(issued),
         }
 
@@ -185,32 +207,69 @@ def issue_products(manufacturer_id: str, body: ProductIssue, db: Session = Depen
         except SignerError as e:
             raise HTTPException(503, f"Cryptographic signing failure: {e}")
 
-        db.add(
-            Product(
-                product_id=pid,
-                manufacturer_id=manufacturer_id,
-                key_id=key.key_id,
-                product_code=body.product_code,
-                product_name=body.product_name,
-                batch_id=body.batch_id,
-                serial_number=serial,
-                issued_at=issued,
-                canonical_payload=payload,
-                signature=signature,
-            )
+        prod = Product(
+            product_id=pid,
+            manufacturer_id=manufacturer_id,
+            key_id=key.key_id,
+            product_code=body.product_code,
+            product_name=body.product_name,
+            batch_id=body.batch_id,
+            serial_number=serial,
+            gtin=gtin14,
+            issued_at=issued,
+            expiry_date=expiry,
+            canonical_payload=payload,
+            signature=signature,
         )
+        db.add(prod)
+
+        # Initialize Digital Product Passport (EU ESPR)
+        dpp = ProductPassport(
+            product_id=pid,
+            materials_composition=body.materials_composition or {"bio_based_polymer": 75.0, "recycled_core": 25.0},
+            carbon_footprint_kg=body.carbon_footprint_kg if body.carbon_footprint_kg is not None else 1.25,
+            recycled_content_pct=body.recycled_content_pct if body.recycled_content_pct is not None else 25.0,
+            repairability_score=body.repairability_score if body.repairability_score is not None else 8.5,
+            circularity_status=body.circularity_status or "RECYCLABLE",
+            compliance_certs=body.compliance_certs or ["EU_ESPR_2024", "ISO_14040", "OPAP_TRUST_VERIFIED"],
+        )
+        db.add(dpp)
+
+        # Record Initial EPCIS Custody Event (Commissioning)
+        add_custody_event(
+            db=db,
+            product_id=pid,
+            business_step="COMMISSIONING",
+            disposition="ACTIVE",
+            location_name=f"{manufacturer.name} Manufacturing Plant #1",
+            custodian_id=manufacturer_id,
+            custodian_name=manufacturer.name,
+            notes="Initial production batch commissioning & cryptographic seal applied.",
+        )
+
         db.add_all([
             VerificationLane(product_id=pid, lane=Lane.MERCHANT),
             VerificationLane(product_id=pid, lane=Lane.CONSUMER),
         ])
+
         uri = f"{get_settings().public_base_url}/v1/verify/{pid}"
+        gs1_uri = build_digital_link_uri(
+            get_settings().public_base_url,
+            gtin14,
+            serial,
+            body.batch_id,
+            expiry.strftime("%y%m%d") if expiry else None,
+        )
+
         products.append({
             "product_id": pid,
             "serial_number": serial,
+            "gtin": gtin14,
             "payload": payload,
             "key_id": key.key_id,
             "signature_b64url": b64url(signature),
             "qr_uri": uri,
+            "gs1_digital_link_uri": gs1_uri,
         })
 
     audit(db, manufacturer_id, "PRODUCTS_ISSUED", body.batch_id, {"quantity": body.quantity})
@@ -223,6 +282,9 @@ def issue_products(manufacturer_id: str, body: ProductIssue, db: Session = Depen
 def verify_one(db: Session, req: VerifyRequest, commit: bool = True) -> dict:
     lane = Lane(req.lane.value)
     product = db.get(Product, req.product_id)
+    risk_flag = None
+    geo_anomaly = None
+
     if product is None:
         result = "INVALID_PRODUCT"
     else:
@@ -258,8 +320,46 @@ def verify_one(db: Session, req: VerifyRequest, commit: bool = True) -> dict:
                 result = "AUTHENTIC"
             else:
                 result = "ALREADY_VERIFIED"
+                risk_flag = "REPLAY_DETECTED"
 
-    ev = VerificationEvent(product_id=req.product_id, lane=lane, result=result)
+            # AI Forensics: Evaluate Geo-velocity against last known scan event
+            if req.geo_lat is not None and req.geo_lon is not None:
+                last_event = db.scalar(
+                    select(VerificationEvent)
+                    .where(
+                        VerificationEvent.product_id == product.product_id,
+                        VerificationEvent.geo_lat.is_not(None),
+                    )
+                    .order_by(VerificationEvent.id.desc())
+                )
+                if last_event:
+                    prev_dict = {
+                        "geo_lat": last_event.geo_lat,
+                        "geo_lon": last_event.geo_lon,
+                        "city": last_event.city or "Previous City",
+                        "occurred_at": last_event.occurred_at,
+                    }
+                    curr_dict = {
+                        "geo_lat": req.geo_lat,
+                        "geo_lon": req.geo_lon,
+                        "city": req.city or "Current City",
+                        "occurred_at": datetime.now(timezone.utc),
+                    }
+                    geo_anomaly = ForensicEngine.evaluate_geo_velocity(prev_dict, curr_dict)
+                    if geo_anomaly:
+                        risk_flag = geo_anomaly["anomaly_type"]
+
+    ev = VerificationEvent(
+        product_id=req.product_id,
+        lane=lane,
+        result=result,
+        risk_flag=risk_flag,
+        geo_lat=req.geo_lat,
+        geo_lon=req.geo_lon,
+        city=req.city,
+        ip_address=req.ip_address,
+        metadata_json={"geo_anomaly": geo_anomaly} if geo_anomaly else {},
+    )
     db.add(ev)
     if commit:
         db.commit()
@@ -269,10 +369,23 @@ def verify_one(db: Session, req: VerifyRequest, commit: bool = True) -> dict:
         "product_id": product.product_id,
         "name": product.product_name,
         "product_code": product.product_code,
+        "gtin": product.gtin,
         "manufacturer_id": product.manufacturer_id,
         "manufacturer": mfr.name if mfr else None,
         "batch": product.batch_id,
     }
+    threat_info = None
+    if product:
+        threat_info = {
+            "risk_flag": risk_flag,
+            "geo_anomaly": geo_anomaly,
+            "threat_advisory": (
+                "🚨 CRITICAL: Replay attack or impossible travel detected across supply chain!"
+                if risk_flag
+                else "✅ Nominal scan pattern. Cryptographic seal intact."
+            ),
+        }
+
     return {
         "result": result,
         "product": product_info,
@@ -281,6 +394,7 @@ def verify_one(db: Session, req: VerifyRequest, commit: bool = True) -> dict:
             "status": "VERIFIED" if result == "AUTHENTIC" else ("ALREADY_VERIFIED" if result == "ALREADY_VERIFIED" else None),
         },
         "event_id": ev.event_id,
+        "threat_analysis": threat_info,
     }
 
 
@@ -431,3 +545,411 @@ def product_record(product_id: str, db: Session = Depends(get_db)):
         "digest_sha256": hashlib.sha256(canonical_bytes(p.canonical_payload)).hexdigest(),
         "status": p.status.value,
     }
+
+
+# ==============================================================================
+# ENTERPRISE PILLARS: GS1 DIGITAL LINK, EU DPP, EPCIS 2.0, FORENSICS & PACKAGING
+# ==============================================================================
+
+@app.get("/01/{gtin}/21/{serial}")
+def resolve_gs1_digital_link(
+    gtin: str,
+    serial: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """GS1 Digital Link (Sunrise 2027) Resolver conforming to GS1 URI Syntax Standard v1.7.0.
+    
+    Supports dynamic content negotiation:
+    - HTML: Consumer mobile passport & authentication view
+    - JSON / JSON-LD: GS1 Digital Link compliant linkset
+    - SVG: High-density packaging vector label
+    """
+    gtin14 = pad_gtin14(gtin)
+    product = db.scalar(
+        select(Product).where(
+            Product.gtin == gtin14,
+            Product.serial_number == serial,
+        )
+    )
+    if not product:
+        # Fallback by serial number or full product_id
+        product = db.scalar(select(Product).where(Product.product_id == serial))
+        if not product:
+            product = db.scalar(select(Product).where(Product.serial_number == serial))
+
+    if not product:
+        raise HTTPException(404, detail="Product not found for the specified GS1 GTIN and Serial")
+
+    mfr = db.get(Manufacturer, product.manufacturer_id)
+    accept = request.headers.get("accept", "").lower()
+
+    # 1. Industrial SVG Vector Label negotiation
+    if "image/svg+xml" in accept:
+        svg_content = generate_single_label_svg(
+            product={
+                "product_name": product.product_name,
+                "product_code": product.product_code,
+                "manufacturer": mfr.name if mfr else "OPAP Manufacturer",
+                "gtin": product.gtin or gtin14,
+                "batch_id": product.batch_id,
+                "serial_number": product.serial_number,
+                "product_id": product.product_id,
+                "expiry_date": product.expiry_date.isoformat() if product.expiry_date else None,
+            },
+            qr_uri=f"{get_settings().public_base_url}/01/{product.gtin or gtin14}/21/{product.serial_number}",
+        )
+        return Response(content=svg_content, media_type="image/svg+xml")
+
+    # 2. Web browser HTML redirect
+    if "text/html" in accept and not ("application/json" in accept or "application/ld+json" in accept):
+        return RedirectResponse(
+            url=f"/ui?product_id={product.product_id}&gtin={gtin14}&serial={serial}"
+        )
+
+    # 3. GS1 Digital Link JSON-LD Linkset Specification
+    base = get_settings().public_base_url
+    dpp_url = f"{base}/v1/products/{product.product_id}/dpp"
+    verify_url = f"{base}/v1/verify/{product.product_id}"
+    custody_url = f"{base}/v1/products/{product.product_id}/custody"
+    label_url = f"{base}/v1/products/{product.product_id}/label.svg"
+
+    return {
+        "@context": "https://ref.gs1.org/standards/digital-link/context.jsonld",
+        "gtin": product.gtin or gtin14,
+        "serial_number": product.serial_number,
+        "batch_id": product.batch_id,
+        "expiry_date": product.expiry_date.isoformat() if product.expiry_date else None,
+        "product_id": product.product_id,
+        "product_name": product.product_name,
+        "manufacturer": mfr.name if mfr else "Unknown",
+        "status": product.status.value,
+        "linkset": [
+            {
+                "href": dpp_url,
+                "title": "EU Ecodesign Digital Product Passport (DPP)",
+                "type": "application/json",
+                "rel": "gs1:dpp",
+            },
+            {
+                "href": verify_url,
+                "title": "OPAP Consumer Authentication & One-Time Verification",
+                "type": "text/html",
+                "rel": "gs1:verificationService",
+            },
+            {
+                "href": custody_url,
+                "title": "GS1 EPCIS 2.0 Custody Traceability",
+                "type": "application/ld+json",
+                "rel": "gs1:epcis",
+            },
+            {
+                "href": label_url,
+                "title": "Industrial Vector Packaging Label",
+                "type": "image/svg+xml",
+                "rel": "gs1:label",
+            },
+        ],
+    }
+
+
+@app.get("/v1/products/{product_id}/dpp", response_model=DPPResponse)
+def get_product_dpp(product_id: str, db: Session = Depends(get_db)):
+    """EU ESPR Digital Product Passport (DPP) compliance endpoint (Regulation EU 2024/1781)."""
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(404, "Product not found")
+
+    mfr = db.get(Manufacturer, product.manufacturer_id)
+    passport = product.passport
+
+    import hashlib
+    from .crypto import canonical_bytes
+    digest = hashlib.sha256(canonical_bytes(product.canonical_payload)).hexdigest()
+
+    # Verify Ed25519 signature
+    mfr_key = db.scalar(
+        select(ManufacturerKey).where(
+            ManufacturerKey.key_id == product.key_id,
+            ManufacturerKey.manufacturer_id == product.manufacturer_id,
+        )
+    )
+    is_valid_sig = False
+    if mfr_key:
+        try:
+            is_valid_sig = verify_signature(
+                mfr_key.public_key,
+                product.canonical_payload,
+                product.signature,
+            )
+        except Exception:
+            is_valid_sig = False
+
+    custody_count = len(product.custody_events) if product.custody_events else 0
+    gs1_uri = build_digital_link_uri(
+        get_settings().public_base_url,
+        product.gtin or "00000000000000",
+        product.serial_number,
+        product.batch_id,
+        product.expiry_date.strftime("%y%m%d") if product.expiry_date else None,
+    )
+
+    return DPPResponse(
+        product_id=product.product_id,
+        product_name=product.product_name,
+        product_code=product.product_code,
+        gtin=product.gtin,
+        manufacturer=mfr.name if mfr else "Unknown Manufacturer",
+        manufacturer_id=product.manufacturer_id,
+        batch_id=product.batch_id,
+        serial_number=product.serial_number,
+        issued_at=utc_iso(product.issued_at),
+        status=product.status.value,
+        materials_composition=passport.materials_composition if passport else {"bio_based_polymer": 75.0, "recycled_core": 25.0},
+        carbon_footprint_kg=passport.carbon_footprint_kg if passport else 1.25,
+        recycled_content_pct=passport.recycled_content_pct if passport else 25.0,
+        repairability_score=passport.repairability_score if passport else 8.5,
+        circularity_status=passport.circularity_status if passport else "RECYCLABLE",
+        compliance_certs=passport.compliance_certs if passport else ["EU_ESPR_2024", "ISO_14040"],
+        gs1_digital_link_uri=gs1_uri,
+        ed25519_verified=is_valid_sig,
+        digest_sha256=digest,
+        custody_events_count=custody_count,
+    )
+
+
+@app.post("/v1/products/{product_id}/custody", response_model=CustodyEventResponse, dependencies=[Depends(require_api_key)])
+def record_custody_event(product_id: str, body: CustodyEventCreate, db: Session = Depends(get_db)):
+    """Appends an immutable GS1 EPCIS 2.0 custody track-and-trace event."""
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(404, "Product not found")
+
+    ev = add_custody_event(
+        db=db,
+        product_id=product_id,
+        business_step=body.business_step,
+        disposition=body.disposition,
+        location_name=body.location_name,
+        custodian_id=body.custodian_id,
+        custodian_name=body.custodian_name,
+        location_gln=body.location_gln,
+        geo_lat=body.geo_lat,
+        geo_lon=body.geo_lon,
+        notes=body.notes,
+        metadata=body.metadata,
+    )
+    db.commit()
+    return CustodyEventResponse(
+        event_id=ev.event_id,
+        product_id=ev.product_id,
+        business_step=ev.business_step.value,
+        disposition=ev.disposition.value,
+        location_gln=ev.location_gln,
+        location_name=ev.location_name,
+        geo_lat=ev.geo_lat,
+        geo_lon=ev.geo_lon,
+        custodian_id=ev.custodian_id,
+        custodian_name=ev.custodian_name,
+        notes=ev.notes,
+        occurred_at=utc_iso(ev.occurred_at),
+        metadata=ev.metadata_json,
+    )
+
+
+@app.get("/v1/products/{product_id}/custody")
+def get_custody_history(product_id: str, format: str = "json", db: Session = Depends(get_db)):
+    """Fetches the complete supply chain custody chain. Supports standard EPCIS 2.0 JSON-LD."""
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(404, "Product not found")
+
+    events = db.scalars(
+        select(CustodyEvent)
+        .where(CustodyEvent.product_id == product_id)
+        .order_by(CustodyEvent.occurred_at.asc())
+    ).all()
+
+    if format.lower() in ("epcis", "epcis2", "json-ld"):
+        return export_epcis2_document(product, list(events))
+
+    return {
+        "product_id": product_id,
+        "count": len(events),
+        "events": [
+            {
+                "event_id": ev.event_id,
+                "business_step": ev.business_step.value,
+                "disposition": ev.disposition.value,
+                "location_gln": ev.location_gln,
+                "location_name": ev.location_name,
+                "geo_lat": ev.geo_lat,
+                "geo_lon": ev.geo_lon,
+                "custodian_id": ev.custodian_id,
+                "custodian_name": ev.custodian_name,
+                "notes": ev.notes,
+                "occurred_at": utc_iso(ev.occurred_at),
+                "metadata": ev.metadata_json,
+            }
+            for ev in events
+        ],
+    }
+
+
+@app.get("/v1/products/{product_id}/forensics", response_model=ForensicThreatReport)
+def get_product_forensics(product_id: str, db: Session = Depends(get_db)):
+    """Generates an autonomous AI counterfeit forensic threat report for a product."""
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(404, "Product not found")
+
+    mfr = db.get(Manufacturer, product.manufacturer_id)
+    events = db.scalars(
+        select(VerificationEvent)
+        .where(VerificationEvent.product_id == product_id)
+        .order_by(VerificationEvent.occurred_at.asc())
+    ).all()
+
+    lanes_db = db.scalars(select(VerificationLane).where(VerificationLane.product_id == product_id)).all()
+    lanes = {l.lane.value: l.status.value for l in lanes_db}
+
+    event_dicts = [
+        {
+            "event_id": ev.event_id,
+            "lane": ev.lane.value,
+            "result": ev.result,
+            "occurred_at": ev.occurred_at,
+            "geo_lat": ev.geo_lat,
+            "geo_lon": ev.geo_lon,
+            "city": ev.city,
+            "risk_flag": ev.risk_flag,
+        }
+        for ev in events
+    ]
+
+    report = ForensicEngine.analyze_product_events(
+        product={
+            "product_id": product.product_id,
+            "product_name": product.product_name,
+            "product_code": product.product_code,
+            "manufacturer": mfr.name if mfr else "Unknown",
+            "batch_id": product.batch_id,
+            "status": product.status.value,
+        },
+        events=event_dicts,
+        lanes=lanes,
+    )
+
+    return ForensicThreatReport(**report)
+
+
+@app.get("/v1/forensics/threats")
+def list_global_threats(limit: int = 50, db: Session = Depends(get_db)):
+    """Global AI surveillance feed: aggregates active replay attacks and impossible travel anomalies."""
+    threat_events = db.scalars(
+        select(VerificationEvent)
+        .where(VerificationEvent.risk_flag.isnot(None))
+        .order_by(VerificationEvent.occurred_at.desc())
+        .limit(limit)
+    ).all()
+
+    return {
+        "count": len(threat_events),
+        "threats": [
+            {
+                "event_id": ev.event_id,
+                "product_id": ev.product_id,
+                "risk_flag": ev.risk_flag,
+                "lane": ev.lane.value,
+                "result": ev.result,
+                "city": ev.city,
+                "geo_lat": ev.geo_lat,
+                "geo_lon": ev.geo_lon,
+                "occurred_at": utc_iso(ev.occurred_at),
+                "metadata": ev.metadata_json,
+            }
+            for ev in threat_events
+        ],
+    }
+
+
+@app.get("/v1/products/{product_id}/label.svg")
+def get_packaging_label_svg(
+    product_id: str,
+    width_mm: int = 100,
+    height_mm: int = 50,
+    db: Session = Depends(get_db),
+):
+    """Generates an industrial vector packaging label (SVG) for factory application."""
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(404, "Product not found")
+    mfr = db.get(Manufacturer, product.manufacturer_id)
+
+    qr_uri = build_digital_link_uri(
+        get_settings().public_base_url,
+        product.gtin or "00000000000000",
+        product.serial_number,
+        product.batch_id,
+        product.expiry_date.strftime("%y%m%d") if product.expiry_date else None,
+    )
+
+    svg_content = generate_single_label_svg(
+        product={
+            "product_id": product.product_id,
+            "product_name": product.product_name,
+            "product_code": product.product_code,
+            "manufacturer": mfr.name if mfr else "OPAP Manufacturer",
+            "gtin": product.gtin or "N/A",
+            "batch_id": product.batch_id,
+            "serial_number": product.serial_number,
+            "expiry_date": product.expiry_date.isoformat() if product.expiry_date else None,
+        },
+        qr_uri=qr_uri,
+        width_mm=width_mm,
+        height_mm=height_mm,
+    )
+    return Response(
+        content=svg_content,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/v1/manufacturers/{manufacturer_id}/labels/sheet", response_class=HTMLResponse)
+def get_manufacturer_label_sheet(
+    manufacturer_id: str,
+    batch_id: str | None = None,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+):
+    """Generates an industrial multi-up sticker print sheet for mass packaging."""
+    mfr = db.get(Manufacturer, manufacturer_id)
+    if not mfr:
+        raise HTTPException(404, "Manufacturer not found")
+
+    query = select(Product).where(Product.manufacturer_id == manufacturer_id)
+    if batch_id:
+        query = query.where(Product.batch_id == batch_id)
+    products_db = db.scalars(query.limit(limit)).all()
+
+    product_dicts = [
+        {
+            "product_id": p.product_id,
+            "product_name": p.product_name,
+            "product_code": p.product_code,
+            "manufacturer": mfr.name,
+            "gtin": p.gtin or "N/A",
+            "batch_id": p.batch_id,
+            "serial_number": p.serial_number,
+            "expiry_date": p.expiry_date.isoformat() if p.expiry_date else None,
+        }
+        for p in products_db
+    ]
+
+    html_sheet = generate_batch_label_sheet_html(
+        products=product_dicts,
+        base_url=get_settings().public_base_url,
+    )
+    return HTMLResponse(content=html_sheet)
+

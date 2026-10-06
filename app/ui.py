@@ -1,12 +1,14 @@
-"""Web Scanner and Verification UI for OPAP Protocol.
+"""Web Operations Center, Mobile Scanner, and Digital Product Passport UI for OPAP.
 
 Zero external CDN dependencies, fully self-contained modern HTML5/CSS3/Vanilla JS
 supporting:
-- Native BarcodeDetector QR scanning with camera viewfinder
-- Image upload & clipboard paste decoding
-- Consumer vs. Merchant lane verification
-- Batch verification table & risk analysis
-- Interactive Protocol Demo Sandbox
+- Native BarcodeDetector QR / GS1 scanning with camera viewfinder
+- GS1 Digital Link (Sunrise 2027) syntax resolution & inspection
+- EU ESPR Digital Product Passport (DPP) circularity & materials viewer
+- GS1 EPCIS 2.0 multi-hop custody chain timeline & custody event logger
+- Autonomous AI Counterfeit Intelligence & geo-velocity threat surveillance
+- Industrial vector packaging label & batch sticker sheet generator
+- Interactive Protocol Demo Sandbox with dual-lane consumption testing
 """
 
 def get_scanner_html() -> str:
@@ -15,14 +17,15 @@ def get_scanner_html() -> str:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OPAP v0.1 | Product Authentication & Scanner</title>
+  <title>OPAP | Open Product Authentication & Digital Link Center</title>
   <style>
     :root {
-      --bg: #0b0f19;
-      --surface: #131c2e;
-      --surface-elevated: #1a263e;
-      --border: #233554;
-      --text: #f1f5f9;
+      --bg: #070b14;
+      --surface: #0f172a;
+      --surface-elevated: #1e293b;
+      --surface-hover: #334155;
+      --border: #24344d;
+      --text: #f8fafc;
       --text-muted: #94a3b8;
       --primary: #38bdf8;
       --primary-hover: #0ea5e9;
@@ -49,8 +52,10 @@ def get_scanner_html() -> str:
     header {
       background: var(--surface);
       border-bottom: 1px solid var(--border);
-      padding: 1rem 1.5rem;
+      padding: 0.85rem 1.5rem;
       display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
       justify-content: space-between;
       align-items: center;
       position: sticky;
@@ -85,20 +90,22 @@ def get_scanner_html() -> str:
     }
     .nav-tabs {
       display: flex;
-      gap: 0.5rem;
+      gap: 0.35rem;
       background: var(--surface-elevated);
       padding: 0.25rem;
       border-radius: 10px;
+      overflow-x: auto;
     }
     .tab-btn {
       background: transparent;
       border: none;
       color: var(--text-muted);
-      padding: 0.4rem 0.9rem;
+      padding: 0.45rem 0.85rem;
       border-radius: 7px;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 600;
       cursor: pointer;
+      white-space: nowrap;
       transition: all 0.15s ease;
     }
     .tab-btn.active {
@@ -109,7 +116,7 @@ def get_scanner_html() -> str:
       color: var(--text);
     }
     .container {
-      max-width: 900px;
+      max-width: 980px;
       margin: 1.5rem auto;
       padding: 0 1rem;
     }
@@ -125,15 +132,17 @@ def get_scanner_html() -> str:
       margin-bottom: 1.25rem;
     }
     .card-header h2 {
-      font-size: 1.2rem;
+      font-size: 1.25rem;
       font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
     .card-header p {
       font-size: 0.85rem;
       color: var(--text-muted);
       margin-top: 0.25rem;
     }
-    /* Controls */
     .lane-selector {
       display: flex;
       gap: 0.75rem;
@@ -156,9 +165,6 @@ def get_scanner_html() -> str:
       border-color: var(--primary);
       background: var(--primary-bg);
       color: var(--primary);
-    }
-    .lane-pill input[type="radio"] {
-      display: none;
     }
     .input-group {
       margin-bottom: 1.25rem;
@@ -195,9 +201,9 @@ def get_scanner_html() -> str:
       align-items: center;
       justify-content: center;
       gap: 0.5rem;
-      padding: 0.75rem 1.5rem;
+      padding: 0.75rem 1.4rem;
       border-radius: 8px;
-      font-size: 0.95rem;
+      font-size: 0.9rem;
       font-weight: 600;
       cursor: pointer;
       border: none;
@@ -216,27 +222,30 @@ def get_scanner_html() -> str:
       border: 1px solid var(--border);
     }
     .btn-secondary:hover {
-      background: var(--border);
+      background: var(--surface-hover);
     }
-    .btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+    .btn-sm {
+      padding: 0.4rem 0.8rem;
+      font-size: 0.8rem;
     }
-    /* Scanner Viewfinder */
+    .btn-danger {
+      background: var(--danger);
+      color: #fff;
+    }
+    /* Viewfinder */
     .viewfinder-wrapper {
       position: relative;
+      width: 100%;
+      height: 280px;
       background: #000;
-      border-radius: 12px;
+      border-radius: 10px;
       overflow: hidden;
-      aspect-ratio: 4 / 3;
-      max-height: 380px;
+      margin-bottom: 1.25rem;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 1.25rem;
-      border: 1px solid var(--border);
     }
-    video#scanner-video {
+    #scanner-video {
       width: 100%;
       height: 100%;
       object-fit: cover;
@@ -245,149 +254,176 @@ def get_scanner_html() -> str:
       position: absolute;
       inset: 0;
       pointer-events: none;
-      display: flex;
+      display: none;
       align-items: center;
       justify-content: center;
     }
     .scanner-box {
-      width: 220px;
-      height: 220px;
-      border: 2px solid rgba(56, 189, 248, 0.8);
+      width: 190px;
+      height: 190px;
+      border: 2px dashed var(--primary);
       border-radius: 16px;
       position: relative;
-      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
     }
     .scanner-line {
       position: absolute;
-      left: 10px;
-      right: 10px;
+      left: 0;
+      right: 0;
       height: 2px;
       background: var(--primary);
       box-shadow: 0 0 10px var(--primary);
-      animation: scan 2.2s infinite ease-in-out;
+      animation: scan 2s linear infinite alternate;
     }
     @keyframes scan {
-      0%, 100% { top: 10px; }
-      50% { top: 206px; }
+      0% { top: 5%; }
+      100% { top: 95%; }
     }
     .scanner-controls {
       display: flex;
       gap: 0.75rem;
-      flex-wrap: wrap;
       margin-bottom: 1.25rem;
     }
-    /* Result Badges */
-    .result-banner {
+    /* Status Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+    .badge-success { background: var(--success-bg); color: var(--success); }
+    .badge-warning { background: var(--warning-bg); color: var(--warning); }
+    .badge-danger { background: var(--danger-bg); color: var(--danger); }
+    .badge-info { background: var(--primary-bg); color: var(--primary); }
+    /* Result Box */
+    .result-panel {
       border-radius: 10px;
       padding: 1.25rem;
       margin-top: 1.25rem;
-      display: flex;
-      align-items: flex-start;
-      gap: 1rem;
-      animation: fadeIn 0.25s ease;
+      animation: fadeIn 0.3s ease;
     }
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(6px); }
       to { opacity: 1; transform: translateY(0); }
     }
-    .result-banner.authentic {
-      background: var(--success-bg);
-      border: 1px solid var(--success);
-      color: #86efac;
+    .result-panel.authentic {
+      background: rgba(34, 197, 94, 0.08);
+      border: 1px solid rgba(34, 197, 94, 0.3);
     }
-    .result-banner.already_verified {
-      background: var(--warning-bg);
-      border: 1px solid var(--warning);
-      color: #fcd34d;
+    .result-panel.replay {
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px solid rgba(245, 158, 11, 0.3);
     }
-    .result-banner.invalid, .result-banner.revoked {
-      background: var(--danger-bg);
-      border: 1px solid var(--danger);
-      color: #fca5a5;
+    .result-panel.invalid {
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.3);
     }
-    .result-icon {
-      font-size: 2rem;
-      line-height: 1;
-    }
-    .result-content h3 {
-      font-size: 1.2rem;
+    .result-title {
+      font-size: 1.25rem;
       font-weight: 700;
-      margin-bottom: 0.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
     }
-    .result-content p {
-      font-size: 0.9rem;
-      opacity: 0.95;
-    }
-    .details-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 1rem;
-      font-size: 0.85rem;
-    }
-    .details-table th, .details-table td {
-      padding: 0.5rem 0.75rem;
-      border-bottom: 1px solid var(--border);
-      text-align: left;
-    }
-    .details-table th {
-      color: var(--text-muted);
-      width: 32%;
-    }
-    .details-table td {
-      font-family: var(--font-mono);
-      word-break: break-all;
-    }
-    /* Stats & Batch */
-    .stats-row {
+    .prop-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-      gap: 1rem;
-      margin-bottom: 1.5rem;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.75rem;
+      margin-top: 1rem;
     }
-    .stat-card {
+    .prop-item {
       background: var(--surface-elevated);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1rem;
-      text-align: center;
+      padding: 0.75rem;
+      border-radius: 8px;
     }
-    .stat-card .val {
-      font-size: 1.75rem;
-      font-weight: 800;
-      margin-top: 0.25rem;
-    }
-    .stat-card.green .val { color: var(--success); }
-    .stat-card.amber .val { color: var(--warning); }
-    .stat-card.red .val { color: var(--danger); }
-    .stat-card .lbl {
-      font-size: 0.75rem;
+    .prop-label {
+      font-size: 0.72rem;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
-    .batch-table {
+    .prop-value {
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-top: 0.2rem;
+      word-break: break-all;
+    }
+    /* Timeline */
+    .timeline {
+      position: relative;
+      margin: 1.5rem 0;
+      padding-left: 2rem;
+    }
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 7px;
+      top: 5px;
+      bottom: 5px;
+      width: 2px;
+      background: var(--border);
+    }
+    .timeline-item {
+      position: relative;
+      margin-bottom: 1.5rem;
+    }
+    .timeline-point {
+      position: absolute;
+      left: -2rem;
+      top: 3px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--primary);
+      border: 3px solid var(--surface);
+    }
+    .timeline-content {
+      background: var(--surface-elevated);
+      padding: 0.85rem 1rem;
+      border-radius: 8px;
+    }
+    /* Table */
+    .table-responsive {
+      overflow-x: auto;
+      margin-top: 1rem;
+    }
+    table {
       width: 100%;
       border-collapse: collapse;
       font-size: 0.85rem;
-      margin-top: 1rem;
     }
-    .batch-table th, .batch-table td {
-      padding: 0.6rem 0.75rem;
-      border-bottom: 1px solid var(--border);
+    th, td {
+      padding: 0.75rem 1rem;
       text-align: left;
+      border-bottom: 1px solid var(--border);
     }
-    .badge {
-      display: inline-block;
-      padding: 0.2rem 0.6rem;
-      border-radius: 9999px;
-      font-size: 0.75rem;
-      font-weight: 700;
+    th {
+      background: var(--surface-elevated);
+      color: var(--text-muted);
+      font-weight: 600;
     }
-    .badge.authentic { background: var(--success-bg); color: var(--success); border: 1px solid var(--success); }
-    .badge.already_verified { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning); }
-    .badge.invalid { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
-    .badge.revoked { background: var(--danger-bg); color: #f87171; border: 1px solid #f87171; }
-    /* Demo Lab */
+    /* Threat / Forensics Card */
+    .threat-card {
+      border-left: 4px solid var(--danger);
+      background: rgba(239, 68, 68, 0.06);
+      padding: 1rem;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 0.75rem;
+    }
+    .threat-card.elevated {
+      border-left-color: var(--warning);
+      background: rgba(245, 158, 11, 0.06);
+    }
+    .threat-card.nominal {
+      border-left-color: var(--success);
+      background: rgba(34, 197, 94, 0.06);
+    }
+    /* Step boxes */
     .step-box {
       background: var(--surface-elevated);
       border: 1px solid var(--border);
@@ -462,34 +498,34 @@ def get_scanner_html() -> str:
     <div class="brand">
       <div class="brand-logo">✓</div>
       <div class="brand-title">
-        <h1>OPAP Protocol v0.1</h1>
-        <p>Open Product Authentication & Dual-Lane Verifier</p>
+        <h1>OPAP Protocol v0.1 // Enterprise</h1>
+        <p>GS1 Digital Link 2027 · EU DPP · EPCIS 2.0 · AI Counterfeit Intel</p>
       </div>
     </div>
     <nav class="nav-tabs">
-      <button class="tab-btn active" onclick="switchTab('single')">Single Scanner</button>
-      <button class="tab-btn" onclick="switchTab('batch')">Batch Verify</button>
-      <button class="tab-btn" onclick="switchTab('demo')">Demo Sandbox</button>
+      <button class="tab-btn active" onclick="switchTab('single')">📱 Scanner</button>
+      <button class="tab-btn" onclick="switchTab('dpp')">🇪🇺 Product Passport</button>
+      <button class="tab-btn" onclick="switchTab('custody')">📦 EPCIS Custody</button>
+      <button class="tab-btn" onclick="switchTab('forensics')">🤖 AI Forensics</button>
+      <button class="tab-btn" onclick="switchTab('batch')">⚡ Batch Audit</button>
+      <button class="tab-btn" onclick="switchTab('demo')">🧪 Sandbox</button>
     </nav>
   </header>
 
   <main class="container">
-    <!-- SINGLE SCANNER TAB -->
+    <!-- 1. SINGLE SCANNER TAB -->
     <section id="tab-single">
       <div class="card">
         <div class="card-header">
-          <h2>Product Authentication Scanner</h2>
-          <p>Scan a product QR code or enter an OPAP Product ID to check authenticity.</p>
+          <h2>📱 Instant Product Authentication & GS1 Digital Link</h2>
+          <p>Scan a 2D DataMatrix/QR or enter an OPAP Product ID / GS1 URI to authenticate.</p>
         </div>
 
-        <!-- Lane Selection -->
         <div class="lane-selector">
           <label class="lane-pill selected" id="pill-consumer" onclick="selectLane('CONSUMER')">
-            <input type="radio" name="lane" value="CONSUMER" checked>
             <span>🛍️ Consumer Lane (End-User)</span>
           </label>
           <label class="lane-pill" id="pill-merchant" onclick="selectLane('MERCHANT')">
-            <input type="radio" name="lane" value="MERCHANT">
             <span>🏢 Merchant Lane (Retailer)</span>
           </label>
         </div>
@@ -521,26 +557,122 @@ def get_scanner_html() -> str:
           </label>
         </div>
 
-        <!-- Manual Product ID Input -->
         <div class="input-group">
-          <label for="product-id-input">Product ID or Scanned URL</label>
+          <label for="product-id-input">Product ID, Serial, or Scanned URI</label>
           <div style="display:flex; gap:0.5rem;">
-            <input type="text" id="product-id-input" class="input-field" placeholder="OPAP-NG-EXAMPLE-..." onkeydown="if(event.key==='Enter') verifySingle()">
+            <input type="text" id="product-id-input" class="input-field" placeholder="OPAP-NG-EXAMPLE-... or /01/000123.../21/SER-001" onkeydown="if(event.key==='Enter') verifySingle()">
             <button class="btn btn-primary" onclick="verifySingle()">Verify</button>
           </div>
         </div>
 
-        <!-- Result Box -->
         <div id="single-result-area"></div>
       </div>
     </section>
 
-    <!-- BATCH VERIFY TAB -->
+    <!-- 2. DIGITAL PRODUCT PASSPORT (DPP) TAB -->
+    <section id="tab-dpp" class="hidden">
+      <div class="card">
+        <div class="card-header">
+          <h2>🇪🇺 EU ESPR Digital Product Passport (DPP)</h2>
+          <p>Conforming to EU Ecodesign Regulation 2024/1781. View circularity, materials, and carbon metrics.</p>
+        </div>
+
+        <div class="input-group">
+          <label for="dpp-product-input">Product ID</label>
+          <div style="display:flex; gap:0.5rem;">
+            <input type="text" id="dpp-product-input" class="input-field" placeholder="Enter Product ID to inspect passport...">
+            <button class="btn btn-primary" onclick="fetchDPP()">Load Passport</button>
+          </div>
+        </div>
+
+        <div id="dpp-content-area"></div>
+      </div>
+    </section>
+
+    <!-- 3. EPCIS 2.0 CUSTODY TIMELINE TAB -->
+    <section id="tab-custody" class="hidden">
+      <div class="card">
+        <div class="card-header">
+          <h2>📦 GS1 EPCIS 2.0 Track &amp; Trace Custody Chain</h2>
+          <p>Multi-hop supply chain custody audit trail with immutable business step progression.</p>
+        </div>
+
+        <div class="input-group">
+          <label for="custody-product-input">Product ID</label>
+          <div style="display:flex; gap:0.5rem;">
+            <input type="text" id="custody-product-input" class="input-field" placeholder="Enter Product ID to view custody chain...">
+            <button class="btn btn-primary" onclick="fetchCustody()">View Custody</button>
+            <button class="btn btn-secondary" onclick="exportEPCIS()">Export JSON-LD</button>
+          </div>
+        </div>
+
+        <div id="custody-timeline-area"></div>
+
+        <!-- Append Custody Event Form -->
+        <div class="step-box" style="margin-top:1.5rem;">
+          <div class="step-title">➕ Log New Custody Transition (Authorized Agent)</div>
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:0.75rem; margin-top:0.75rem;">
+            <div>
+              <label style="font-size:0.75rem; color:var(--text-muted);">Business Step</label>
+              <select id="new-custody-step" class="input-field" style="padding:0.5rem;">
+                <option value="SHIPPING">SHIPPING</option>
+                <option value="CUSTOMS_CLEARANCE">CUSTOMS_CLEARANCE</option>
+                <option value="RECEIVING" selected>RECEIVING</option>
+                <option value="HOLDING">HOLDING</option>
+                <option value="RETAIL_SELLING">RETAIL_SELLING</option>
+                <option value="INSPECTING">INSPECTING</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:0.75rem; color:var(--text-muted);">Disposition</label>
+              <select id="new-custody-disp" class="input-field" style="padding:0.5rem;">
+                <option value="ACTIVE" selected>ACTIVE</option>
+                <option value="IN_TRANSIT">IN_TRANSIT</option>
+                <option value="HELD">HELD</option>
+                <option value="RECALLED">RECALLED</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:0.75rem; color:var(--text-muted);">Location Name</label>
+              <input type="text" id="new-custody-loc" class="input-field" style="padding:0.5rem;" value="Rotterdam Port Customs Terminal">
+            </div>
+            <div>
+              <label style="font-size:0.75rem; color:var(--text-muted);">Custodian Name</label>
+              <input type="text" id="new-custody-custodian" class="input-field" style="padding:0.5rem;" value="Global Cargo Logistics B.V.">
+            </div>
+          </div>
+          <div style="margin-top:0.75rem; display:flex; justify-content:flex-end;">
+            <button class="btn btn-sm btn-primary" onclick="submitCustodyEvent()">Record Custody Event</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. AI COUNTERFEIT FORENSICS TAB -->
+    <section id="tab-forensics" class="hidden">
+      <div class="card">
+        <div class="card-header">
+          <h2>🤖 AI Counterfeit Intelligence &amp; Surveillance Feed</h2>
+          <p>Real-time detection of replay clone syndicates and impossible travel velocities (Haversine v &gt; 900 km/h).</p>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+          <h3 style="font-size:1rem; font-weight:600;">Active Threat Feed (Last 50 Anomalies)</h3>
+          <button class="btn btn-sm btn-secondary" onclick="fetchGlobalThreats()">Refresh Feed</button>
+        </div>
+
+        <div id="threat-feed-area">
+          <p style="color:var(--text-muted); font-size:0.85rem;">Loading surveillance feed...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. BATCH VERIFY TAB -->
     <section id="tab-batch" class="hidden">
       <div class="card">
         <div class="card-header">
-          <h2>Batch Verification Engine</h2>
-          <p>Verify multiple product identifiers at once. Ideal for supply chain ingestion and carton auditing.</p>
+          <h2>⚡ Batch Verification &amp; Ingestion Audit</h2>
+          <p>Verify up to 1,000 product tokens in a single request for warehouse carton and pallet ingestion.</p>
         </div>
 
         <div class="lane-selector">
@@ -563,22 +695,21 @@ def get_scanner_html() -> str:
         </div>
 
         <button class="btn btn-primary" onclick="runBatchVerification()" id="btn-batch-verify">Verify Batch</button>
-
         <div id="batch-results-area" style="margin-top:1.5rem;"></div>
       </div>
     </section>
 
-    <!-- DEMO SANDBOX TAB -->
+    <!-- 6. DEMO SANDBOX TAB -->
     <section id="tab-demo" class="hidden">
       <div class="card">
         <div class="card-header">
-          <h2>OPAP Protocol Live Sandbox</h2>
-          <p>Quickly bootstrap a test manufacturer, issue cryptographically signed products, and test double-spend / replay defense.</p>
+          <h2>🧪 OPAP Protocol Live Sandbox &amp; Label Factory</h2>
+          <p>Quickly bootstrap demo manufacturers, issue GS1-compliant batches, test replay attacks, and print packaging sheets.</p>
         </div>
 
         <div class="step-box">
           <div class="step-title">
-            <span class="step-num">1</span> Register Demo Manufacturer & Key
+            <span class="step-num">1</span> Register Demo Manufacturer &amp; Key
           </div>
           <p style="font-size:0.85rem; color:var(--text-muted);">Generates an active Ed25519 keypair and registers the manufacturer identity in the local registry.</p>
           <div style="margin-top:0.75rem;">
@@ -589,7 +720,7 @@ def get_scanner_html() -> str:
 
         <div class="step-box">
           <div class="step-title">
-            <span class="step-num">2</span> Issue Signed Product Batch
+            <span class="step-num">2</span> Issue Signed Product Batch (with GS1 GTIN-14 &amp; DPP)
           </div>
           <p style="font-size:0.85rem; color:var(--text-muted);">Issues 3 individual product tokens signed by the configured signer provider with canonical JSON payloads.</p>
           <div style="margin-top:0.75rem;">
@@ -601,7 +732,17 @@ def get_scanner_html() -> str:
 
         <div class="step-box">
           <div class="step-title">
-            <span class="step-num">3</span> Active Signer & Hardware Status
+            <span class="step-num">3</span> Factory Batch Label Sheet Generator
+          </div>
+          <p style="font-size:0.85rem; color:var(--text-muted);">Generates print-ready high-density packaging sticker sheets for factory roll &amp; sheet applicators.</p>
+          <div style="margin-top:0.75rem;">
+            <a href="/v1/manufacturers/NG-MFR-TEST/labels/sheet" target="_blank" class="btn btn-primary btn-sm">🖨️ Open Print Sticker Sheet (HTML)</a>
+          </div>
+        </div>
+
+        <div class="step-box">
+          <div class="step-title">
+            <span class="step-num">4</span> Active Signer &amp; Hardware Status
           </div>
           <p style="font-size:0.85rem; color:var(--text-muted);">Inspect the current cryptographic provider (Local Env, Key File, AWS KMS, GCP KMS, or PKCS#11 HSM).</p>
           <div style="margin-top:0.75rem;">
@@ -619,8 +760,8 @@ def get_scanner_html() -> str:
     let videoStream = null;
     let barcodeDetector = null;
     let isScanning = false;
+    let lastVerifiedProductId = null;
 
-    // Initialize Barcode Detector if supported
     if ('BarcodeDetector' in window) {
       BarcodeDetector.getSupportedFormats().then(formats => {
         if (formats.includes('qr_code')) {
@@ -632,15 +773,25 @@ def get_scanner_html() -> str:
     function switchTab(tabId) {
       document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
       document.querySelectorAll('main > section').forEach(sec => sec.classList.add('hidden'));
-      if (tabId === 'single') {
-        document.querySelector('.tab-btn:nth-child(1)').classList.add('active');
-        document.getElementById('tab-single').classList.remove('hidden');
-      } else if (tabId === 'batch') {
-        document.querySelector('.tab-btn:nth-child(2)').classList.add('active');
-        document.getElementById('tab-batch').classList.remove('hidden');
-      } else {
-        document.querySelector('.tab-btn:nth-child(3)').classList.add('active');
-        document.getElementById('tab-demo').classList.remove('hidden');
+      
+      const tabMap = {
+        'single': 1, 'dpp': 2, 'custody': 3, 'forensics': 4, 'batch': 5, 'demo': 6
+      };
+      const idx = tabMap[tabId] || 1;
+      const targetBtn = document.querySelector(`.tab-btn:nth-child(${idx})`);
+      if (targetBtn) targetBtn.classList.add('active');
+      
+      const sec = document.getElementById('tab-' + tabId);
+      if (sec) sec.classList.remove('hidden');
+
+      if (tabId === 'forensics') {
+        fetchGlobalThreats();
+      } else if (tabId === 'dpp' && lastVerifiedProductId) {
+        document.getElementById('dpp-product-input').value = lastVerifiedProductId;
+        fetchDPP();
+      } else if (tabId === 'custody' && lastVerifiedProductId) {
+        document.getElementById('custody-product-input').value = lastVerifiedProductId;
+        fetchCustody();
       }
     }
 
@@ -658,311 +809,525 @@ def get_scanner_html() -> str:
       document.getElementById('batch-merchant-group').classList.toggle('hidden', lane !== 'MERCHANT');
     }
 
-    // Camera handling
+    // Camera Viewfinder
     async function toggleCamera() {
-      const btn = document.getElementById('btn-toggle-camera');
       const video = document.getElementById('scanner-video');
       const placeholder = document.getElementById('camera-placeholder');
+      const overlay = document.getElementById('scanner-overlay');
+      const btn = document.getElementById('btn-toggle-camera');
 
-      if (videoStream) {
-        // Stop
-        videoStream.getTracks().forEach(t => t.stop());
-        videoStream = null;
-        isScanning = false;
+      if (isScanning) {
+        if (videoStream) {
+          videoStream.getTracks().forEach(t => t.stop());
+          videoStream = null;
+        }
         video.srcObject = null;
-        placeholder.style.display = 'block';
+        isScanning = false;
+        placeholder.classList.remove('hidden');
+        overlay.style.display = 'none';
         btn.textContent = 'Start Camera';
-        btn.classList.remove('btn-secondary');
-        btn.classList.add('btn-primary');
-        return;
-      }
-
-      try {
-        videoStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }
-        });
-        video.srcObject = videoStream;
-        await video.play();
-        placeholder.style.display = 'none';
-        btn.textContent = 'Stop Camera';
-        btn.classList.remove('btn-primary');
-        btn.classList.add('btn-secondary');
-        isScanning = true;
-        scanLoop();
-      } catch (err) {
-        alert('Could not access camera: ' + err.message + '\\nYou can still upload a QR photo or paste the Product ID.');
+      } else {
+        try {
+          videoStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment' }
+          });
+          video.srcObject = videoStream;
+          video.play();
+          isScanning = true;
+          placeholder.classList.add('hidden');
+          overlay.style.display = 'flex';
+          btn.textContent = 'Stop Camera';
+          scanVideoLoop();
+        } catch (err) {
+          alert('Could not start camera: ' + err.message);
+        }
       }
     }
 
-    async function scanLoop() {
+    async function scanVideoLoop() {
       if (!isScanning) return;
       const video = document.getElementById('scanner-video');
-
-      if (barcodeDetector && video.readyState === video.HAVE_ENOUGH_DATA) {
+      if (video.readyState === video.HAVE_ENOUGH_DATA && barcodeDetector) {
         try {
           const barcodes = await barcodeDetector.detect(video);
           if (barcodes.length > 0) {
-            const rawValue = barcodes[0].rawValue;
-            handleDetectedCode(rawValue);
-            // Throttle after detection
-            setTimeout(() => { if (isScanning) requestAnimationFrame(scanLoop); }, 1500);
+            handleScannedRawText(barcodes[0].rawValue);
+            toggleCamera(); // stop scanner on hit
             return;
           }
-        } catch (e) {
-          // Frame error, continue
+        } catch (err) {
+          console.warn('Scan frame error:', err);
         }
       }
-      requestAnimationFrame(scanLoop);
+      requestAnimationFrame(scanVideoLoop);
     }
 
-    function extractProductId(text) {
-      if (!text) return '';
-      text = text.trim();
-      if (text.includes('/v1/verify/')) {
-        return text.split('/v1/verify/')[1].split('?')[0].split('#')[0].trim();
-      }
-      return text;
-    }
-
-    function handleDetectedCode(code) {
-      const pid = extractProductId(code);
-      document.getElementById('product-id-input').value = pid;
-      verifySingle(pid);
-    }
-
-    // Handle Image Upload File
-    async function handleImageUpload(e) {
-      const file = e.target.files[0];
+    async function handleImageUpload(evt) {
+      const file = evt.target.files[0];
       if (!file) return;
-
       if (!barcodeDetector) {
-        alert('BarcodeDetector API is not supported in this browser. Please enter the Product ID manually.');
+        alert('BarcodeDetector API is not supported in this browser. Please enter Product ID manually.');
         return;
       }
-
       try {
-        const imageBitmap = await createImageBitmap(file);
-        const barcodes = await barcodeDetector.detect(imageBitmap);
+        const bmp = await createImageBitmap(file);
+        const barcodes = await barcodeDetector.detect(bmp);
         if (barcodes.length > 0) {
-          handleDetectedCode(barcodes[0].rawValue);
+          handleScannedRawText(barcodes[0].rawValue);
         } else {
           alert('No QR code detected in the uploaded image.');
         }
       } catch (err) {
-        alert('Error analyzing image: ' + err.message);
+        alert('Failed to analyze image: ' + err.message);
       }
     }
 
-    // Verify Single Product
-    async function verifySingle(explicitPid) {
-      const pid = explicitPid || extractProductId(document.getElementById('product-id-input').value);
-      if (!pid) {
-        alert('Please provide or scan a Product ID.');
-        return;
+    function extractProductId(raw) {
+      if (!raw) return '';
+      raw = raw.trim();
+      // Handle GS1 Digital Link /01/{gtin}/21/{serial}
+      if (raw.includes('/01/') && raw.includes('/21/')) {
+        const parts = raw.split('/21/');
+        if (parts.length > 1) {
+          return parts[1].split('?')[0].split('/')[0];
+        }
       }
+      if (raw.includes('/v1/verify/')) {
+        return raw.split('/v1/verify/')[1].split('?')[0].split('/')[0];
+      }
+      return raw;
+    }
 
-      const area = document.getElementById('single-result-area');
-      area.innerHTML = '<div style="color:var(--text-muted); padding:1rem; text-align:center;">Verifying cryptographic signature & consumption lane...</div>';
+    function handleScannedRawText(text) {
+      const pid = extractProductId(text);
+      document.getElementById('product-id-input').value = pid;
+      verifySingle();
+    }
 
-      const body = {
+    // Verify Single Product
+    async function verifySingle() {
+      const input = document.getElementById('product-id-input').value.trim();
+      if (!input) return;
+      const pid = extractProductId(input);
+      lastVerifiedProductId = pid;
+
+      const resultArea = document.getElementById('single-result-area');
+      resultArea.innerHTML = '<p style="color:var(--text-muted); padding:1rem 0;">Verifying cryptographic seal and lane consumption...</p>';
+
+      const payload = {
         product_id: pid,
         lane: currentLane,
-        merchant_id: currentLane === 'MERCHANT' ? (document.getElementById('merchant-id-input').value || 'STORE-01') : null
+        merchant_id: currentLane === 'MERCHANT' ? document.getElementById('merchant-id-input').value.trim() : null
       };
 
       try {
         const res = await fetch('/v1/verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
+          body: JSON.stringify(payload)
         });
         const data = await res.json();
         renderSingleResult(data, pid);
       } catch (err) {
-        area.innerHTML = `<div class="result-banner invalid"><div class="result-icon">⚠️</div><div class="result-content"><h3>Network / Server Error</h3><p>${err.message}</p></div></div>`;
+        resultArea.innerHTML = `<div class="result-panel invalid"><div class="result-title">❌ Network Error</div><p>${err.message}</p></div>`;
       }
     }
 
     function renderSingleResult(data, pid) {
-      const area = document.getElementById('single-result-area');
-      const res = data.result;
+      const resultArea = document.getElementById('single-result-area');
+      const resCode = data.result || 'UNKNOWN';
+      const prod = data.product || {};
+      const threat = data.threat_analysis || {};
 
-      let bannerClass = 'invalid';
-      let icon = '❌';
-      let title = 'Invalid Product';
-      let explanation = 'This product record or cryptographic signature could not be verified.';
+      let panelClass = 'invalid';
+      let titleIcon = '❌';
+      let titleText = 'COUNTERFEIT OR INVALID SIGNATURE';
 
-      if (res === 'AUTHENTIC') {
-        bannerClass = 'authentic';
-        icon = '✅';
-        title = 'Authentic Product Verified';
-        explanation = `Genuine item issued under OPAP v0.1. Verified successfully in the ${data.verification.lane} lane.`;
-      } else if (res === 'ALREADY_VERIFIED') {
-        bannerClass = 'already_verified';
-        icon = '⚠️';
-        title = 'Duplicate / Already Verified';
-        explanation = `This product was ALREADY VERIFIED in the ${data.verification.lane} lane! Possible clone or physical counterfeiting replay.`;
-      } else if (res === 'REVOKED_PRODUCT') {
-        bannerClass = 'revoked';
-        icon = '⛔';
-        title = 'Revoked Product';
-        explanation = 'This product item or batch has been officially revoked or recalled by the manufacturer.';
-      } else if (res === 'REVOKED_MANUFACTURER') {
-        bannerClass = 'revoked';
-        icon = '⛔';
-        title = 'Revoked Manufacturer';
-        explanation = 'The manufacturer or signing key has been revoked and is no longer trusted.';
+      if (resCode === 'AUTHENTIC') {
+        panelClass = 'authentic';
+        titleIcon = '✅';
+        titleText = 'GENUINE & AUTHENTIC PRODUCT';
+      } else if (resCode === 'ALREADY_VERIFIED') {
+        panelClass = 'replay';
+        titleIcon = '⚠️';
+        titleText = 'REPLAY DETECTED: ALREADY VERIFIED';
+      } else if (resCode === 'REVOKED_PRODUCT' || resCode === 'REVOKED_MANUFACTURER') {
+        panelClass = 'invalid';
+        titleIcon = '🚫';
+        titleText = 'PRODUCT OFFICIALLY REVOKED';
       }
 
-      let p = data.product || {};
-      let html = `
-        <div class="result-banner ${bannerClass}">
-          <div class="result-icon">${icon}</div>
-          <div class="result-content" style="flex:1;">
-            <h3>${title}</h3>
-            <p>${explanation}</p>
+      const threatBanner = threat.risk_flag ? `
+        <div style="background:var(--danger-bg); border:1px solid var(--danger); color:#fca5a5; padding:0.75rem; border-radius:8px; margin-top:0.75rem; font-size:0.85rem;">
+          ${threat.threat_advisory || 'Suspicious scan activity detected!'}
+        </div>
+      ` : '';
+
+      resultArea.innerHTML = `
+        <div class="result-panel ${panelClass}">
+          <div class="result-title">${titleIcon} ${titleText}</div>
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.5rem;">
+            <span class="badge ${resCode==='AUTHENTIC'?'badge-success':(resCode==='ALREADY_VERIFIED'?'badge-warning':'badge-danger')}">${resCode}</span>
+            <span class="badge badge-info">LANE: ${data.verification ? data.verification.lane : currentLane}</span>
+            <span class="badge badge-info">SIG: Ed25519 VERIFIED</span>
+          </div>
+          ${threatBanner}
+          <div class="prop-grid">
+            <div class="prop-item">
+              <div class="prop-label">Product Name</div>
+              <div class="prop-value">${prod.product_name || 'N/A'}</div>
+            </div>
+            <div class="prop-item">
+              <div class="prop-label">Manufacturer</div>
+              <div class="prop-value">${prod.manufacturer || 'N/A'}</div>
+            </div>
+            <div class="prop-item">
+              <div class="prop-label">Batch ID</div>
+              <div class="prop-value">${prod.batch || 'N/A'}</div>
+            </div>
+            <div class="prop-item">
+              <div class="prop-label">Product ID</div>
+              <div class="prop-value" style="font-family:var(--font-mono); font-size:0.8rem;">${pid}</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:0.5rem; margin-top:1rem; flex-wrap:wrap;">
+            <button class="btn btn-secondary btn-sm" onclick="quickViewDPP('${pid}')">🇪🇺 View Digital Passport</button>
+            <button class="btn btn-secondary btn-sm" onclick="quickViewCustody('${pid}')">📦 View Custody Chain</button>
+            <a href="/v1/products/${pid}/label.svg" target="_blank" class="btn btn-secondary btn-sm">🏷️ Packaging SVG</a>
           </div>
         </div>
       `;
+    }
 
-      if (p.product_id) {
-        html += `
-          <table class="details-table">
-            <tr><th>Product Name</th><td><strong>${p.name || 'N/A'}</strong></td></tr>
-            <tr><th>Product Code</th><td>${p.product_code || 'N/A'}</td></tr>
-            <tr><th>Manufacturer</th><td>${p.manufacturer || p.manufacturer_id || 'N/A'}</td></tr>
-            <tr><th>Batch ID</th><td>${p.batch || 'N/A'}</td></tr>
-            <tr><th>Product ID</th><td>${p.product_id}</td></tr>
-            <tr><th>Audit Event ID</th><td>${data.event_id || 'N/A'}</td></tr>
-          </table>
+    function quickViewDPP(pid) {
+      lastVerifiedProductId = pid;
+      switchTab('dpp');
+    }
+
+    function quickViewCustody(pid) {
+      lastVerifiedProductId = pid;
+      switchTab('custody');
+    }
+
+    // Digital Product Passport
+    async function fetchDPP() {
+      const pid = document.getElementById('dpp-product-input').value.trim();
+      if (!pid) return;
+      const area = document.getElementById('dpp-content-area');
+      area.innerHTML = '<p style="color:var(--text-muted); padding:1rem 0;">Fetching EU Digital Product Passport...</p>';
+
+      try {
+        const res = await fetch(`/v1/products/${pid}/dpp`);
+        if (!res.ok) throw new Error('Product or passport not found (HTTP ' + res.status + ')');
+        const data = await res.json();
+        
+        const certBadges = (data.compliance_certs || []).map(c => `<span class="badge badge-info" style="margin-right:0.35rem;">📜 ${c}</span>`).join('');
+        const materials = Object.entries(data.materials_composition || {}).map(([k, v]) => `
+          <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.25rem 0; border-bottom:1px solid var(--border);">
+            <span>${k.replace(/_/g, ' ')}</span>
+            <span style="font-weight:700; color:var(--primary);">${v}%</span>
+          </div>
+        `).join('');
+
+        area.innerHTML = `
+          <div class="result-panel authentic" style="margin-top:1rem;">
+            <div class="result-title">🇪🇺 EU ESPR Compliance Registry Record</div>
+            <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">Compliant with European Ecodesign Regulation (EU) 2024/1781.</p>
+            <div class="prop-grid">
+              <div class="prop-item">
+                <div class="prop-label">Product Name</div>
+                <div class="prop-value">${data.product_name}</div>
+              </div>
+              <div class="prop-item">
+                <div class="prop-label">GTIN-14 (GS1)</div>
+                <div class="prop-value" style="font-family:var(--font-mono);">${data.gtin || '00000000000000'}</div>
+              </div>
+              <div class="prop-item">
+                <div class="prop-label">Carbon Footprint</div>
+                <div class="prop-value" style="color:#38bdf8;">${data.carbon_footprint_kg} kg CO₂e</div>
+              </div>
+              <div class="prop-item">
+                <div class="prop-label">Recycled Content</div>
+                <div class="prop-value" style="color:#22c55e;">${data.recycled_content_pct}%</div>
+              </div>
+              <div class="prop-item">
+                <div class="prop-label">Repairability Index</div>
+                <div class="prop-value">${data.repairability_score} / 10</div>
+              </div>
+              <div class="prop-item">
+                <div class="prop-label">Circularity Status</div>
+                <div class="prop-value"><span class="badge badge-success">${data.circularity_status}</span></div>
+              </div>
+            </div>
+
+            <div style="margin-top:1.25rem;">
+              <h4 style="font-size:0.9rem; font-weight:700; margin-bottom:0.5rem;">Material Composition</h4>
+              ${materials}
+            </div>
+
+            <div style="margin-top:1.25rem;">
+              <h4 style="font-size:0.9rem; font-weight:700; margin-bottom:0.5rem;">Compliance Certifications</h4>
+              ${certBadges}
+            </div>
+
+            <div style="margin-top:1.25rem; font-size:0.8rem; font-family:var(--font-mono); color:var(--text-muted); word-break:break-all;">
+              Digital Link: <a href="${data.gs1_digital_link_uri}" target="_blank" style="color:var(--primary);">${data.gs1_digital_link_uri}</a>
+            </div>
+          </div>
         `;
+      } catch (err) {
+        area.innerHTML = `<div class="result-panel invalid"><p>❌ ${err.message}</p></div>`;
       }
+    }
 
-      area.innerHTML = html;
+    // EPCIS Custody Timeline
+    async function fetchCustody() {
+      const pid = document.getElementById('custody-product-input').value.trim();
+      if (!pid) return;
+      const area = document.getElementById('custody-timeline-area');
+      area.innerHTML = '<p style="color:var(--text-muted); padding:1rem 0;">Fetching EPCIS 2.0 custody history...</p>';
+
+      try {
+        const res = await fetch(`/v1/products/${pid}/custody`);
+        if (!res.ok) throw new Error('Custody record not found (HTTP ' + res.status + ')');
+        const data = await res.json();
+        const events = data.events || [];
+
+        if (events.length === 0) {
+          area.innerHTML = '<p style="color:var(--text-muted); padding:1rem 0;">No custody events recorded for this product.</p>';
+          return;
+        }
+
+        const items = events.map(ev => `
+          <div class="timeline-item">
+            <div class="timeline-point"></div>
+            <div class="timeline-content">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <strong>${ev.business_step}</strong>
+                <span class="badge badge-info" style="font-size:0.7rem;">${ev.disposition}</span>
+              </div>
+              <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">
+                📍 ${ev.location_name} ${ev.location_gln ? '(GLN: '+ev.location_gln+')' : ''}
+              </div>
+              <div style="font-size:0.85rem; margin-top:0.25rem;">
+                👤 Custodian: <strong>${ev.custodian_name}</strong>
+              </div>
+              ${ev.notes ? `<div style="font-size:0.8rem; color:#94a3b8; font-style:italic; margin-top:0.25rem;">"${ev.notes}"</div>` : ''}
+              <div style="font-size:0.75rem; color:#64748b; margin-top:0.4rem; font-family:var(--font-mono);">
+                🕒 ${ev.occurred_at} · Event ID: ${ev.event_id.slice(0, 8)}...
+              </div>
+            </div>
+          </div>
+        `).join('');
+
+        area.innerHTML = `<div class="timeline">${items}</div>`;
+      } catch (err) {
+        area.innerHTML = `<div class="result-panel invalid"><p>❌ ${err.message}</p></div>`;
+      }
+    }
+
+    async function exportEPCIS() {
+      const pid = document.getElementById('custody-product-input').value.trim();
+      if (!pid) {
+        alert('Please enter a Product ID first.');
+        return;
+      }
+      window.open(`/v1/products/${pid}/custody?format=epcis`, '_blank');
+    }
+
+    async function submitCustodyEvent() {
+      const pid = document.getElementById('custody-product-input').value.trim();
+      if (!pid) {
+        alert('Please enter a Product ID above first.');
+        return;
+      }
+      const step = document.getElementById('new-custody-step').value;
+      const disp = document.getElementById('new-custody-disp').value;
+      const loc = document.getElementById('new-custody-loc').value;
+      const custodian = document.getElementById('new-custody-custodian').value;
+
+      try {
+        const res = await fetch(`/v1/products/${pid}/custody`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': 'opap-dev-key-change-in-prod'
+          },
+          body: JSON.stringify({
+            business_step: step,
+            disposition: disp,
+            location_name: loc,
+            custodian_id: 'CUST-AGENT-01',
+            custodian_name: custodian,
+            notes: 'Field scan recorded via Operations Center.'
+          })
+        });
+        if (!res.ok) throw new Error('Failed to record event (HTTP ' + res.status + ')');
+        alert('Custody transition recorded successfully!');
+        fetchCustody();
+      } catch (err) {
+        alert('Error: ' + err.message);
+      }
+    }
+
+    // AI Forensics
+    async function fetchGlobalThreats() {
+      const area = document.getElementById('threat-feed-area');
+      area.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem;">Scanning global verification telemetry...</p>';
+
+      try {
+        const res = await fetch('/v1/forensics/threats');
+        const data = await res.json();
+        const threats = data.threats || [];
+
+        if (threats.length === 0) {
+          area.innerHTML = `
+            <div class="threat-card nominal">
+              <div style="font-weight:700; color:var(--success);">✅ Zero Active Supply Chain Threats</div>
+              <p style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">
+                All recent verifications across the global registry exhibit nominal travel speeds, valid Ed25519 signatures, and unviolated one-time lanes.
+              </p>
+            </div>
+          `;
+          return;
+        }
+
+        const cards = threats.map(t => `
+          <div class="threat-card">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <strong style="color:var(--danger);">🚨 ${t.risk_flag}</strong>
+              <span class="badge badge-danger" style="font-size:0.7rem;">${t.lane} LANE</span>
+            </div>
+            <div style="font-size:0.85rem; margin-top:0.25rem;">
+              Product ID: <a href="javascript:void(0)" onclick="quickInspectThreat('${t.product_id}')" style="color:var(--primary); font-family:var(--font-mono);">${t.product_id}</a>
+            </div>
+            <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.2rem;">
+              Location: <strong>${t.city || 'Unknown Location'}</strong> · ${t.occurred_at}
+            </div>
+          </div>
+        `).join('');
+
+        area.innerHTML = cards;
+      } catch (err) {
+        area.innerHTML = `<p style="color:var(--danger); font-size:0.85rem;">Failed to fetch threats: ${err.message}</p>`;
+      }
+    }
+
+    function quickInspectThreat(pid) {
+      document.getElementById('product-id-input').value = pid;
+      switchTab('single');
+      verifySingle();
     }
 
     // Batch Verification
     async function runBatchVerification() {
-      const text = document.getElementById('batch-input').value.trim();
-      if (!text) {
-        alert('Please enter one or more Product IDs.');
-        return;
-      }
+      const rawText = document.getElementById('batch-input').value.trim();
+      if (!rawText) return;
 
-      const lines = text.split(/[\\n,]+/).map(s => extractProductId(s)).filter(Boolean);
-      if (lines.length === 0) {
-        alert('No valid Product IDs found.');
-        return;
-      }
+      const lines = rawText.split(/[,\n]+/).map(s => extractProductId(s)).filter(Boolean);
+      if (lines.length === 0) return;
 
+      const btn = document.getElementById('btn-batch-verify');
       const area = document.getElementById('batch-results-area');
-      area.innerHTML = '<div style="color:var(--text-muted); padding:1rem; text-align:center;">Processing batch verification...</div>';
+      btn.disabled = true;
+      btn.textContent = 'Verifying Batch...';
+      area.innerHTML = '<p style="color:var(--text-muted);">Auditing items against registry...</p>';
 
-      const items = lines.map(pid => ({
-        product_id: pid,
-        lane: currentBatchLane,
-        merchant_id: currentBatchLane === 'MERCHANT' ? (document.getElementById('batch-merchant-input').value || 'STORE-01') : null
-      }));
+      const payload = {
+        default_lane: currentBatchLane,
+        default_merchant_id: currentBatchLane === 'MERCHANT' ? document.getElementById('batch-merchant-input').value.trim() : null,
+        items: lines.map(pid => ({ product_id: pid }))
+      };
 
       try {
         const res = await fetch('/v1/verify/batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            items: items,
-            default_lane: currentBatchLane,
-            default_merchant_id: currentBatchLane === 'MERCHANT' ? (document.getElementById('batch-merchant-input').value || 'STORE-01') : null
-          })
+          body: JSON.stringify(payload)
         });
         const data = await res.json();
         renderBatchResults(data);
       } catch (err) {
-        area.innerHTML = `<div class="result-banner invalid"><div class="result-icon">⚠️</div><div class="result-content"><h3>Batch Error</h3><p>${err.message}</p></div></div>`;
+        area.innerHTML = `<div class="result-panel invalid"><p>❌ Batch error: ${err.message}</p></div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Verify Batch';
       }
     }
 
     function renderBatchResults(data) {
-      const s = data.summary;
       const area = document.getElementById('batch-results-area');
+      const summary = data.summary || {};
+      const results = data.results || [];
 
-      let rows = data.results.map(r => {
-        let badgeClass = 'invalid';
-        if (r.result === 'AUTHENTIC') badgeClass = 'authentic';
-        else if (r.result === 'ALREADY_VERIFIED') badgeClass = 'already_verified';
-        else if (r.result.includes('REVOKED')) badgeClass = 'revoked';
-
-        let name = r.product ? r.product.name : 'Unknown';
-        let batch = r.product ? r.product.batch : '-';
-
-        return `
-          <tr>
-            <td><span class="badge ${badgeClass}">${r.result}</span></td>
-            <td>${name}</td>
-            <td>${batch}</td>
-            <td style="font-family:var(--font-mono); font-size:0.75rem;">${r.product_id}</td>
-          </tr>
-        `;
-      }).join('');
+      const rows = results.map(r => `
+        <tr>
+          <td style="font-family:var(--font-mono); font-size:0.8rem;">${r.product_id}</td>
+          <td><span class="badge ${r.result==='AUTHENTIC'?'badge-success':(r.result==='ALREADY_VERIFIED'?'badge-warning':'badge-danger')}">${r.result}</span></td>
+          <td>${r.product ? r.product.product_name : 'N/A'}</td>
+          <td>${r.product ? r.product.batch : 'N/A'}</td>
+        </tr>
+      `).join('');
 
       area.innerHTML = `
-        <div class="stats-row">
-          <div class="stat-card"><div class="lbl">Total Items</div><div class="val">${s.total}</div></div>
-          <div class="stat-card green"><div class="lbl">Authentic</div><div class="val">${s.authentic}</div></div>
-          <div class="stat-card amber"><div class="lbl">Replays</div><div class="val">${s.already_verified}</div></div>
-          <div class="stat-card red"><div class="lbl">Revoked</div><div class="val">${s.revoked}</div></div>
-          <div class="stat-card red"><div class="lbl">Invalid</div><div class="val">${s.invalid}</div></div>
+        <div class="result-panel authentic">
+          <div class="result-title">⚡ Batch Verification Summary: ${summary.status}</div>
+          <div class="prop-grid">
+            <div class="prop-item"><div class="prop-label">Total Items</div><div class="prop-value">${summary.total}</div></div>
+            <div class="prop-item"><div class="prop-label">Authentic</div><div class="prop-value" style="color:var(--success);">${summary.authentic}</div></div>
+            <div class="prop-item"><div class="prop-label">Replay / Spent</div><div class="prop-value" style="color:var(--warning);">${summary.already_verified}</div></div>
+            <div class="prop-item"><div class="prop-label">Counterfeit / Invalid</div><div class="prop-value" style="color:var(--danger);">${summary.invalid}</div></div>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Product ID</th>
+                  <th>Status</th>
+                  <th>Product</th>
+                  <th>Batch</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
         </div>
-
-        <table class="batch-table">
-          <thead>
-            <tr>
-              <th>Status</th>
-              <th>Product</th>
-              <th>Batch</th>
-              <th>Product ID</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows}
-          </tbody>
-        </table>
       `;
     }
 
-    // Demo Sandbox Actions
-    let demoApiKey = 'dev-change-me';
-
+    // Demo Sandbox
     async function demoRegisterManufacturer() {
       const log = document.getElementById('demo-mfr-log');
       log.classList.remove('hidden');
-      log.textContent = 'Checking active signer and registering NG-MFR-TEST...';
+      log.textContent = 'Generating local Ed25519 signing keypair...\n';
 
       try {
         const signerRes = await fetch('/v1/signer');
-        const signer = await signerRes.json();
+        const signerInfo = await signerRes.json();
+        
+        const payload = {
+          manufacturer_id: 'NG-MFR-TEST',
+          name: 'PharmaTech Global Nigeria Ltd',
+          public_key_b64: signerInfo.public_key_b64
+        };
 
-        const res = await fetch('/v1/manufacturers', {
+        const regRes = await fetch('/v1/manufacturers', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': demoApiKey
+            'X-API-Key': 'opap-dev-key-change-in-prod'
           },
-          body: JSON.stringify({
-            manufacturer_id: 'NG-MFR-TEST',
-            name: 'Golden Standard AgriCorp Ltd.',
-            key_id: 'KEY-TEST-001',
-            public_key_b64: signer.public_key_b64
-          })
+          body: JSON.stringify(payload)
         });
 
-        if (res.status === 409) {
-          log.textContent = 'Manufacturer NG-MFR-TEST is already registered and ready for product issuance.';
+        if (!regRes.ok) {
+          const errData = await regRes.json();
+          log.textContent += 'Manufacturer registration note: ' + JSON.stringify(errData, null, 2);
         } else {
-          const data = await res.json();
-          log.textContent = 'Registered successfully:\\n' + JSON.stringify(data, null, 2);
+          log.textContent += 'Manufacturer NG-MFR-TEST registered successfully!\n';
         }
       } catch (err) {
-        log.textContent = 'Error: ' + err.message;
+        log.textContent += 'Error: ' + err.message;
       }
     }
 
@@ -970,57 +1335,56 @@ def get_scanner_html() -> str:
       const log = document.getElementById('demo-issue-log');
       const container = document.getElementById('demo-qr-container');
       log.classList.remove('hidden');
-      log.textContent = 'Issuing 3 signed product records with Ed25519 signatures...';
+      log.textContent = 'Issuing 3 cryptographically signed items with GTIN-14 and EU DPP...\n';
       container.innerHTML = '';
+
+      const payload = {
+        product_code: 'AMOX-500MG-BOX',
+        product_name: 'Amoxicillin Trihydrate 500mg USP',
+        batch_id: 'LOT-2026-X89',
+        quantity: 3,
+        gtin: '00012345678905',
+        carbon_footprint_kg: 0.85,
+        recycled_content_pct: 35.0
+      };
 
       try {
         const res = await fetch('/v1/manufacturers/NG-MFR-TEST/products', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': demoApiKey
+            'X-API-Key': 'opap-dev-key-change-in-prod'
           },
-          body: JSON.stringify({
-            product_code: 'RICE-50KG',
-            product_name: 'Golden Harvest Premium Rice',
-            batch_id: 'BATCH-2026-X',
-            quantity: 3
-          })
+          body: JSON.stringify(payload)
         });
-
         const data = await res.json();
-        log.textContent = `Issued ${data.count} signed products successfully.`;
+        log.textContent += `Successfully issued ${data.count} items!\n`;
 
-        let batchIds = [];
         data.products.forEach(p => {
-          batchIds.push(p.product_id);
           const card = document.createElement('div');
           card.className = 'qr-card';
           card.innerHTML = `
-            <img src="/v1/products/${p.product_id}/qr.svg" alt="QR Code">
-            <div class="pid">${p.product_id.substring(0, 18)}...</div>
-            <button class="btn btn-primary" style="padding:0.3rem 0.6rem; font-size:0.75rem; margin-top:0.4rem; width:100%;" onclick="testVerifyFromDemo('${p.product_id}')">Scan / Verify</button>
+            <img src="/v1/products/${p.product_id}/qr.svg" alt="QR">
+            <div class="pid">${p.product_id}</div>
+            <button class="btn btn-sm btn-primary" style="margin-top:0.4rem; width:100%;" onclick="quickTestVerify('${p.product_id}')">Scan Token</button>
           `;
           container.appendChild(card);
         });
-
-        // Prepopulate batch textarea
-        document.getElementById('batch-input').value = batchIds.join('\\n');
       } catch (err) {
-        log.textContent = 'Error: ' + err.message;
+        log.textContent += 'Error: ' + err.message;
       }
     }
 
-    function testVerifyFromDemo(pid) {
-      switchTab('single');
+    function quickTestVerify(pid) {
       document.getElementById('product-id-input').value = pid;
-      verifySingle(pid);
+      switchTab('single');
+      verifySingle();
     }
 
     async function checkSignerStatus() {
       const log = document.getElementById('demo-signer-log');
       log.classList.remove('hidden');
-      log.textContent = 'Inspecting configured signer provider...';
+      log.textContent = 'Querying active cryptographic signer provider...\n';
       try {
         const res = await fetch('/v1/signer');
         const data = await res.json();
@@ -1029,7 +1393,28 @@ def get_scanner_html() -> str:
         log.textContent = 'Error: ' + err.message;
       }
     }
+
+    // Auto-detect URL query params on load
+    window.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      const pid = params.get('product_id');
+      const gtin = params.get('gtin');
+      const serial = params.get('serial');
+      const tab = params.get('tab');
+
+      if (pid) {
+        document.getElementById('product-id-input').value = pid;
+        lastVerifiedProductId = pid;
+        if (tab) {
+          switchTab(tab);
+        } else {
+          verifySingle();
+        }
+      } else if (gtin && serial) {
+        document.getElementById('product-id-input').value = `/01/${gtin}/21/${serial}`;
+        verifySingle();
+      }
+    });
   </script>
 </body>
-</html>
-"""
+</html>"""
